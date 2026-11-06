@@ -1,0 +1,33 @@
+{
+  "name": "adhd-reader-chrome",
+  "version": "0.1.16",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node server.mjs",
+    "test": "node scripts/test.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "package": "npm run build && node scripts/package.mjs",
+    "check:release": "node scripts/check-release.mjs"
+  },
+  "dependencies": {
+    "franc": "6.2.0",
+    "iso-639-3": "3.0.1",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.5.438"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "esbuild": "0.27.3"
+  },
+  "license": "UNLICENSED",
+  "description": "Local PDF reading with a persistent line guide and portable annotations.",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/julyseaweed/adhd-reader-chrome.git"
+  }
+}
