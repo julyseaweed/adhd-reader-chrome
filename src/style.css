@@ -55,7 +55,7 @@ button [data-icon] { display: flex; }
 .primary { background: var(--accent); color: var(--surface); padding: 12px 19px; border-radius: 5px; font-size: 13px; font-weight: 550; }
 .primary:hover { filter: brightness(1.1); }
 .primary.small { height: 36px; padding: 8px 13px; margin-left: 8px; }
-#save { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
+#save { background: transparent; color: var(--ink); border: 1px solid var(--ink); font-weight: 400; }
 #save:hover { background: var(--hover); filter: none; }
 .primary svg { width: 16px; }
 .secondary { padding: 10px 17px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; }
