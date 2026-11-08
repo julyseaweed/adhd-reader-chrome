@@ -42,7 +42,7 @@ function persistSettings(){localStorage.setItem('linea-settings',JSON.stringify(
 function updateTheme(){document.body.classList.toggle('dark',s.theme==='dark');$('theme').innerHTML=icon(s.theme==='dark'?'sun':'moon');$('theme').title=$('theme').ariaLabel=s.theme==='dark'?'白天模式':'夜间模式';document.querySelector('meta[name=theme-color]').content=s.theme==='dark'?'#1b1b1b':'#fafafa'}
 updateTheme();$('dim').value=s.dim;$('dim-value').value=s.dim+'%';document.documentElement.style.setProperty('--dim',s.dim/100);document.documentElement.style.setProperty('--note',s.color);
 
-function updateSaveStatus(){const dirty=signature()!==s.savedSignature;$('dirty-dot').hidden=!dirty;$('save-status').textContent=!s.canExport?'只读':s.storageFailed?'草稿保存失败':dirty?(s.draftPending?'保存中':'未导出'):'';$('save').title=dirty?'保存含标注的 PDF · Ctrl S':'保存 PDF · Ctrl S'}
+function updateSaveStatus(){const dirty=signature()!==s.savedSignature;$('dirty-dot').hidden=!dirty;$('save').title=dirty?'保存含标注的 PDF · Ctrl S':'保存 PDF · Ctrl S'}
 function readingAnchor(){return s.readingAnchor?structuredClone(s.readingAnchor):null}
 function rememberReadingLine(record,index){const line=record?.lines[index];s.readingAnchor={pageIndex:record.index,lineIndex:Math.max(0,index),items:line?.items.map(({index})=>({index}))||[],text:line?.text||''}}
 function readingLineIndex(record,anchor=s.readingAnchor){

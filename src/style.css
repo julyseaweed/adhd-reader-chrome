@@ -79,12 +79,11 @@ button [data-icon] { display: flex; }
 .color-button::before { content: ""; width: 13px; height: 13px; border: 1px solid #00000012; border-radius: 50%; background: var(--note); }
 .color-button:hover { background: var(--hover); }
 .zoom-label { padding: 7px; border-radius: 5px; font-size: 11px; min-width: 49px; }
-.reader-footer { height: 45px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-top: 1px solid var(--line); padding: 0 26px; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--muted); flex-shrink: 0; background: var(--surface); }
+.reader-footer { height: 45px; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; border-top: 1px solid var(--line); padding: 0 26px; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--muted); flex-shrink: 0; background: var(--surface); }
 .page-nav { justify-self: start; display: flex; align-items: center; gap: 8px; }
 .page-value { display: flex; align-items: center; gap: 5px; }
 #page-number { width: 3ch; min-width: 2ch; height: 28px; border: 0; border-radius: 4px; background: transparent; text-align: center; color: var(--ink); padding: 0; font: inherit; }
 #page-count { height: 28px; display: inline-flex; align-items: center; white-space: nowrap; }
-#save-status { justify-self: end; text-align: right; }
 #reading-area { display: flex; min-height: 0; flex: 1; }
 #scroll-area { position: relative; flex: 1; min-width: 0; overflow: auto; padding: 34px 38px 50px; scroll-behavior: auto; overflow-anchor: none; touch-action: pan-x pan-y; outline: none; background: var(--bg); }
 #page-shell { position: relative; margin: 0 auto; }
@@ -189,7 +188,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   .color-button { margin: 0 2px; }
   .zoom-label { min-width: 42px; }
   .reader-footer { padding: 0 12px; }
-  #save-status { max-width: 85px; white-space: nowrap; overflow: hidden; }
   #scroll-area { padding: 20px 12px 36px; }
   #notes-panel { position: absolute; right: 0; top: 108px; bottom: 45px; z-index: 20; box-shadow: var(--shadow); width: 280px; max-width: calc(100vw - 24px); }
   .settings { right: 14px; top: 50px; }
