@@ -1,6 +1,6 @@
 /** One zoom path for buttons, trackpads and touch; paint a preview before rasterizing. */
 export function createPdfZoom({area, shell, page, enabled, scale, render, interrupt, label}) {
-  const MIN = .35, MAX = 3;
+  const MIN = .35, MAX = 3, GESTURE_GAIN = 1.5, RENDER_DELAY = 80;
   let target = null, anchor = null, timer, touch, revision = 0, fit = false;
   const clamp = value => Math.min(MAX, Math.max(MIN, value));
   function center() {
@@ -26,10 +26,12 @@ export function createPdfZoom({area, shell, page, enabled, scale, render, interr
     // A short document can need a vertical inset when scrolling is clamped.
     r=page.getBoundingClientRect();
     const dy=r.top+point.v*r.height-point.y;
-    const style=getComputedStyle(shell);
-    if(Math.abs(dy)>.5)shell.style.marginTop=Math.max(0,(parseFloat(style.marginTop)||0)-dy)+'px';
-    r=page.getBoundingClientRect();
-    area.scrollTop+=r.top+point.v*r.height-point.y;
+    if(Math.abs(dy)>.5){
+      const margin=Math.max(0,(parseFloat(getComputedStyle(shell).marginTop)||0)-dy);
+      shell.style.marginTop=margin+'px';
+      r=page.getBoundingClientRect();
+      area.scrollTop+=r.top+point.v*r.height-point.y;
+    }
   }
   function preview(value, point=center(), fixedAnchor, fitWidth=false) {
     if (!enabled() || !Number.isFinite(value)) return;
@@ -47,7 +49,7 @@ export function createPdfZoom({area, shell, page, enabled, scale, render, interr
     restore(anchor);
     clearTimeout(timer);
     const version = ++revision;
-    timer = setTimeout(() => commit(version), 110);
+    timer = setTimeout(() => commit(version), RENDER_DELAY);
   }
   async function commit(version) {
     if (version !== revision || target === null) return;
@@ -86,7 +88,10 @@ export function createPdfZoom({area, shell, page, enabled, scale, render, interr
     event.preventDefault();
     const point=area.contains(event.target)?{x:event.clientX,y:event.clientY}:center();
     const delta=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?area.clientHeight:1);
-    preview((target??scale())*Math.exp(-delta*.002),point);
+    // Precision pinches use pixel deltas. Keep discrete line/page wheel steps
+    // at their previous gain and leave ordinary (non-Ctrl) scrolling alone.
+    const gain=event.deltaMode===0?GESTURE_GAIN:1;
+    preview((target??scale())*Math.exp(-delta*.002*gain),point);
   },{passive:false});
   const midpoint = touches => ({x:(touches[0].clientX+touches[1].clientX)/2,y:(touches[0].clientY+touches[1].clientY)/2});
   const distance = touches => Math.hypot(touches[0].clientX-touches[1].clientX,touches[0].clientY-touches[1].clientY);
@@ -101,7 +106,7 @@ export function createPdfZoom({area, shell, page, enabled, scale, render, interr
     if(!touch||event.touches.length!==2)return;
     event.preventDefault();
     const point=midpoint(event.touches);
-    preview(touch.scale*distance(event.touches)/touch.distance,point,{...touch.anchor,...point});
+    preview(touch.scale*Math.pow(distance(event.touches)/touch.distance,GESTURE_GAIN),point,{...touch.anchor,...point});
   },{passive:false});
   const end=event=>{if(touch&&event.touches.length<2)touch=null};
   area.addEventListener('touchend',end);area.addEventListener('touchcancel',end);

@@ -19,7 +19,7 @@ await new Promise((resolve, reject) => { server.once('error', reject); server.li
 const args = process.argv.slice(2);
 try {
   process.exitCode = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(root, 'node_modules/@playwright/test/cli.js'), 'test', ...(args.length ? args : ['tests/table-reading.spec.mjs', 'tests/locked-reading.spec.mjs', 'tests/reading-scroll.spec.mjs', 'tests/figure-navigation.spec.mjs']), '--workers=1', '--reporter=line'], {
+    const child = spawn(process.execPath, [path.join(root, 'node_modules/@playwright/test/cli.js'), 'test', ...(args.length ? args : ['tests/table-reading.spec.mjs', 'tests/locked-reading.spec.mjs', 'tests/reading-scroll.spec.mjs', 'tests/figure-navigation.spec.mjs', 'tests/annotation-editing.spec.mjs']), '--workers=1', '--reporter=line'], {
       cwd: root, env: { ...process.env, LINEA_TEST_URL: `http://127.0.0.1:${server.address().port}` }, stdio: 'inherit', windowsHide: true,
     });
     child.once('error', reject); child.once('exit', code => resolve(code ?? 1));

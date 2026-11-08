@@ -97,13 +97,20 @@ body.dark .pdf-page { background: #1f1f1f; }
 .annotations-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .annotation-group { position: absolute; inset: 0; pointer-events: none; }
 .annotation-group.highlight { opacity: var(--highlight-opacity, .35); mix-blend-mode: multiply; }
-.annotation-mark { position: absolute; pointer-events: auto; cursor: pointer; }
+.annotation-mark { position: absolute; pointer-events: none; }
 .annotation-mark.underline { background: transparent !important; }
 .annotation-mark.underline::after { content: ""; position: absolute; left: 0; right: 0; height: var(--underline-width); bottom: calc(var(--underline-inset) - var(--underline-width) / 2); background: var(--mark-color, #000); }
 .annotation-mark.comment { background: transparent !important; border: 1px dotted var(--mark-color); border-radius: 2px; }
 .annotation-mark.comment::after { content: ""; width: 6px; height: 6px; background: var(--mark-color); position: absolute; right: -3px; top: -3px; border-radius: 50%; }
 body.dark .annotation-group.highlight { mix-blend-mode: screen; }
+.annotation-mark.underline::after { background: #000; }
 body.dark .annotation-mark.underline::after { background: var(--ink); }
+.annotation-selection { position: absolute; border: 1px solid var(--muted); border-radius: 2px; pointer-events: none; z-index: 5; }
+body[data-tool="erase"] .textLayer, body[data-tool="erase"] .textLayer span { cursor: crosshair; user-select: none; }
+.annotation-menu { display: flex; padding: 5px; gap: 3px; }
+.annotation-menu button { height: 31px; padding: 5px 9px; border-radius: 5px; font-size: 12px; }
+.annotation-menu button:hover { background: var(--hover); }
+.annotation-menu svg { width: 16px; height: 16px; }
 .focus-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
 .shade { position: absolute; background: rgba(var(--shade), var(--dim)); }
 .shade.top { left: 0; top: 0; width: 100%; }
@@ -186,6 +193,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   #scroll-area { padding: 20px 12px 36px; }
   #notes-panel { position: absolute; right: 0; top: 108px; bottom: 45px; z-index: 20; box-shadow: var(--shadow); width: 280px; max-width: calc(100vw - 24px); }
   .settings { right: 14px; top: 50px; }
+}
+@media (max-width: 440px) {
+  .toolstrip { height: 84px; padding: 6px 12px; flex-direction: column; align-items: stretch; justify-content: center; gap: 4px; }
+  .toolstrip .tool-group { flex-shrink: 0; }
+  .toolstrip .tool-group:last-child { align-self: flex-end; }
+  #notes-panel { top: 140px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; scroll-behavior: auto !important; }

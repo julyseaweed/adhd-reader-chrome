@@ -6,7 +6,7 @@ import { loadPDF } from '../src/pdf-engine.js';
 
 const appURL = process.env.LINEA_TEST_URL || 'http://127.0.0.1:4173';
 test.use({ browserName: 'chromium', headless: true, viewport: { width: 1320, height: 1040 }, deviceScaleFactor: 2,
-  reducedMotion: 'reduce', launchOptions: { executablePath: process.env.LINEA_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe' } });
+  reducedMotion: 'reduce', launchOptions: { executablePath: process.env.CHROME_EXECUTABLE || process.env.LINEA_CHROME } });
 test.setTimeout(90000);
 let fixture;
 async function open(page, index, rotation = 0) {

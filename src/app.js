@@ -9,6 +9,8 @@ import {createReadingScroll,readingScrollTarget} from './reading-scroll.js';
 import {ContinuousDocument} from './continuous-document.js';
 import {selectWordAtPoint} from './word-selection.js';
 import {HIGHLIGHT_COLORS as palette,HIGHLIGHT_OPACITY,underlineMetrics} from './annotation-style.js';
+import {annotationAtPoint,annotationsAlongSegment} from './annotation-hit-test.js';
+import {applyDeletedAnnotationsToDocument} from './annotation-deletions.js';
 document.documentElement.style.setProperty('--highlight-opacity',HIGHLIGHT_OPACITY);
 const paletteColor=value=>palette.includes(value?.toLowerCase())?value.toLowerCase():value==='#90b9db'?palette[1]:palette[0];
 function normalizeDraft(annotations){return annotations.map(a=>({...a,rects:(a.type==='underline'?underlinePdfRects:canonicalizePdfRects)(a.rects,a.rotation||0),color:a.type==='underline'?'#000000':paletteColor(a.color)}))}
@@ -17,11 +19,11 @@ const $=id=>document.getElementById(id);
 function focusReader(){if(!$('reader').hidden&&!document.querySelector('dialog[open]'))$('scroll-area').focus({preventScroll:true})}
 document.addEventListener('keydown',e=>{if(e.key==='Tab')document.documentElement.dataset.keyboardNavigation=''},true);
 document.addEventListener('pointerdown',()=>{delete document.documentElement.dataset.keyboardNavigation;interruptReadingNavigation()},true);
-const icons={folder:'M3 6h6l2 2h10v11H3z M3 6V4h6l2 2',moon:'M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z',sun:'M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0',sliders:'M4 7h7m5 0h4M4 17h2m5 0h9 M11 4v6m5-6v6 M6 14v6m5-6v6',download:'M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4',plus:'M12 5v14M5 12h14',minus:'M5 12h14',focus:'M4 5h16M4 19h16M3 9h18v6H3z',cursor:'m5 3 14 9-7 1-4 7z',highlight:'m14 3 7 7-9 9-7-7zM5 12l-2 7h7M3 22h18',underline:'M6 3v8a6 6 0 0 0 12 0V3M4 21h16',comment:'M4 4h16v12H9l-5 4z',sidebar:'M3 4h18v16H3zM15 4v16',close:'m6 6 12 12M6 18 18 6',left:'m15 6-6 6 6 6',right:'m9 6 6 6-6 6',translate:'M3 5h12M9 3v2M5 8c1 4 4 7 8 8M13 5c-1 5-5 9-10 11M14 21l4-11 4 11m-6-4h4',copy:'M8 8h12v13H8zM16 8V3H3v13h5'};
+const icons={folder:'M3 6h6l2 2h10v11H3z M3 6V4h6l2 2',moon:'M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z',sun:'M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0',sliders:'M4 7h7m5 0h4M4 17h2m5 0h9 M11 4v6m5-6v6 M6 14v6m5-6v6',download:'M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4',plus:'M12 5v14M5 12h14',minus:'M5 12h14',focus:'M4 5h16M4 19h16M3 9h18v6H3z',cursor:'m5 3 14 9-7 1-4 7z',highlight:'m14 3 7 7-9 9-7-7zM5 12l-2 7h7M3 22h18',underline:'M6 3v8a6 6 0 0 0 12 0V3M4 21h16',comment:'M4 4h16v12H9l-5 4z',sidebar:'M3 4h18v16H3zM15 4v16',close:'m6 6 12 12M6 18 18 6',left:'m15 6-6 6 6 6',right:'m9 6 6 6-6 6',translate:'M3 5h12M9 3v2M5 8c1 4 4 7 8 8M13 5c-1 5-5 9-10 11M14 21l4-11 4 11m-6-4h4',copy:'M8 8h12v13H8zM16 8V3H3v13h5',eraser:'m15 3 6 6-11 11H5l-3-3L15 3ZM8 11l6 6M10 20h11',trash:'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7'};
 function icon(name){return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name]||icons.folder}"/></svg>`}
 document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
 const settings=(()=>{try{return JSON.parse(localStorage.getItem('linea-settings')||'{}')}catch{return {}}})();
-const s={doc:null,bytes:null,id:null,name:'',pageIndex:0,page:null,viewport:null,lines:[],lineIndex:0,readingAnchor:null,annotations:[],nativeAnnotations:[],nativeByPage:new Map(),undo:[],redo:[],zoom:null,focus:true,dim:settings.dim??72,tool:'select',color:paletteColor(settings.color),theme:settings.theme||'light',selection:null,renderGeneration:0,savedSignature:'[]',persistTimer:null,storageFailed:false,draftPending:false,persistRevision:0,canExport:true};
+const s={doc:null,bytes:null,id:null,name:'',pageIndex:0,page:null,viewport:null,lines:[],lineIndex:0,readingAnchor:null,annotations:[],deletedAnnotations:[],selectedAnnotation:null,nativeAnnotations:[],nativeByPage:new Map(),undo:[],redo:[],zoom:null,focus:true,dim:settings.dim??72,tool:'select',color:paletteColor(settings.color),theme:settings.theme||'light',selection:null,renderGeneration:0,savedSignature:'[]',persistTimer:null,storageFailed:false,draftPending:false,persistRevision:0,canExport:true};
 let toastTimer,commentEditing=null,commentTarget=null,selectionClickTimer,press=null,translationGeneration=0,openGeneration=0,documentEpoch=0,persistChain=Promise.resolve();
 // A navigation belongs to one document session, even when the same PDF is reopened.
 let navigationOwner=null;
@@ -31,7 +33,9 @@ function beginOpenIntent(){interruptReadingNavigation();openGeneration++;passwor
 function beginNavigation(){const owner={epoch:documentEpoch};navigationOwner=owner;s.navigationLock=true;return owner}
 function ownsNavigation(owner){return navigationOwner===owner&&owner.epoch===documentEpoch}
 function endNavigation(owner){if(ownsNavigation(owner)){navigationOwner=null;s.navigationLock=false;refreshVisible()}}
-const signature=()=>JSON.stringify(s.annotations);
+const annotationState=()=>structuredClone({annotations:s.annotations,deletedAnnotations:s.deletedAnnotations});
+const stateSignature=({annotations,deletedAnnotations=[]})=>JSON.stringify(deletedAnnotations.length?{annotations,deletedAnnotations}:annotations);
+const signature=()=>stateSignature(s);
 const busy=(value,label='正在打开')=>{$('busy').hidden=!value;$('busy-label').textContent=label};
 function toast(message){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,3800)}
 function persistSettings(){localStorage.setItem('linea-settings',JSON.stringify({dim:s.dim,color:s.color,theme:s.theme}))}
@@ -57,10 +61,10 @@ function excludedTableStep(record,anchor,direction){
  const targets=new Set(neighbor),index=record.lines.findIndex(line=>line.items.some(item=>targets.has(item.index)));
  return index>=0?{adjacentPage:false,index}:null;
 }
-function persist(immediate=false){clearTimeout(s.persistTimer);if(!s.id)return Promise.resolve();s.draftPending=true;const revision=++s.persistRevision;updateSaveStatus();const run=()=>{const anchor=readingAnchor();const record={id:s.id,name:s.name,bytes:s.bytes,annotations:structuredClone(s.annotations),pageIndex:anchor?.pageIndex??0,lineIndex:anchor?.lineIndex??0,lineAnchor:anchor,savedSignature:s.savedSignature,updated:Date.now()};persistChain=persistChain.catch(()=>{}).then(()=>putDocument(record)).then(()=>{if(record.id===s.id&&revision===s.persistRevision){s.storageFailed=false;s.draftPending=false;updateSaveStatus()}}).catch(()=>{if(record.id===s.id){s.storageFailed=true;s.draftPending=false;updateSaveStatus();toast('本地存储空间不足，请保存 PDF')}});return persistChain};if(immediate)return run();s.persistTimer=setTimeout(run,350)}
+function persist(immediate=false){clearTimeout(s.persistTimer);if(!s.id)return Promise.resolve();s.draftPending=true;const revision=++s.persistRevision;updateSaveStatus();const run=()=>{const anchor=readingAnchor();const record={id:s.id,name:s.name,bytes:s.bytes,annotations:structuredClone(s.annotations),deletedAnnotations:structuredClone(s.deletedAnnotations),pageIndex:anchor?.pageIndex??0,lineIndex:anchor?.lineIndex??0,lineAnchor:anchor,savedSignature:s.savedSignature,updated:Date.now()};persistChain=persistChain.catch(()=>{}).then(()=>putDocument(record)).then(()=>{if(record.id===s.id&&revision===s.persistRevision){s.storageFailed=false;s.draftPending=false;updateSaveStatus()}}).catch(()=>{if(record.id===s.id){s.storageFailed=true;s.draftPending=false;updateSaveStatus();toast('本地存储空间不足，请保存 PDF')}});return persistChain};if(immediate)return run();s.persistTimer=setTimeout(run,350)}
 async function showRecent(){try{const list=await recentDocuments();$('recent-list').replaceChildren();list.forEach(item=>{const btn=document.createElement('button');btn.className='recent-row';const name=document.createElement('span');name.className='recent-name';name.textContent=item.name.replace(/\.pdf$/i,'');const page=document.createElement('small');page.textContent=`第 ${(item.pageIndex||0)+1} 页`;btn.innerHTML=icon('folder');btn.append(name,page);btn.onclick=async()=>{const importId=beginOpenIntent();busy(true);try{const saved=await getDocument(item.id,true);if(importId!==openGeneration)return;if(!saved?.bytes)throw Error('原文件未找到，请重新导入');await openBytes(saved.bytes,saved.name,saved,importId)}catch(e){if(importId===openGeneration)toast(e.message)}finally{if(importId===openGeneration)busy(false)}};$('recent-list').append(btn)})}catch{}}
 showRecent();
-function closeFloating(){ $('selection-menu').hidden=true;$('translation').hidden=true;cancelTranslation();translationGeneration++ }
+function closeFloating(){ $('selection-menu').hidden=true;$('translation').hidden=true;$('annotation-menu').hidden=true;s.selectedAnnotation=null;document.querySelectorAll('.annotation-selection').forEach(el=>el.remove());cancelTranslation();translationGeneration++ }
 function clearSelection(){window.getSelection()?.removeAllRanges();s.selection=null;closeFloating();updateFocus(false)}
 function requestPassword(){
  passwordRequest?.cancel();busy(false);$('password').value='';const dialog=$('password-dialog');
@@ -76,7 +80,7 @@ function resetDocumentSession(){
  interruptReadingNavigation();
  documentEpoch++;s.renderGeneration++;navigationOwner=null;navigation=Promise.resolve();
  zoom.reset();flow.destroy();cancelAnimationFrame(visibleFrame);clearTimeout(resizeTimer);clearTimeout(selectionClickTimer);
- initializingDocument=null;initializingFlow=null;press=null;commentTarget=null;commentEditing=null;
+ initializingDocument=null;initializingFlow=null;press=null;erasePress=null;commentTarget=null;commentEditing=null;
  window.getSelection()?.removeAllRanges();closeFloating();
  $('comment-dialog').close();$('settings').hidden=true;
  const area=$('scroll-area');area.scrollTo({top:0,left:0,behavior:'instant'});
@@ -88,7 +92,8 @@ function resetDocumentSession(){
 async function openBytes(input,name,stored,importId=beginOpenIntent()){
  if(importId!==openGeneration)return;if(s.doc)await persist(true);if(importId!==openGeneration)return;closeFloating();busy(true);let next;
  try{const bytes=input instanceof Uint8Array?input:new Uint8Array(input);let password;for(;;){if(importId!==openGeneration)return;try{next=await loadPDF(bytes,password);break}catch(e){if(importId!==openGeneration)return;if(e.name!=='PasswordException')throw e;password=await requestPassword();if(password===null||importId!==openGeneration)return;busy(true)}}
- const id=await fingerprint(bytes);stored=stored||await getDocument(id).catch(()=>null);if(importId!==openGeneration){await next.destroy();return}const previous=s.doc;resetDocumentSession();Object.assign(s,{doc:next,bytes:bytes.slice(),id,name,pageIndex:Math.min(stored?.pageIndex||0,next.numPages-1),lineIndex:stored?.lineIndex||0,restoredLine:stored?.lineAnchor||null,annotations:normalizeDraft(stored?.annotations||[]),nativeByPage:new Map(),undo:[],redo:[],zoom:null,savedSignature:stored?.savedSignature||'[]',storageFailed:false});if(previous)Promise.resolve(previous.destroy()).catch(console.error);
+ const id=await fingerprint(bytes);stored=stored||await getDocument(id).catch(()=>null);if(importId!==openGeneration){await next.destroy();return}const previous=s.doc;resetDocumentSession();Object.assign(s,{doc:next,bytes:bytes.slice(),id,name,pageIndex:Math.min(stored?.pageIndex||0,next.numPages-1),lineIndex:stored?.lineIndex||0,restoredLine:stored?.lineAnchor||null,annotations:normalizeDraft(stored?.annotations||[]),deletedAnnotations:structuredClone(stored?.deletedAnnotations||[]),nativeByPage:new Map(),undo:[],redo:[],zoom:null,savedSignature:stored?.savedSignature||'[]',storageFailed:false});if(previous)Promise.resolve(previous.destroy()).catch(console.error);
+ applyDeletedAnnotationsToDocument(next,s.deletedAnnotations);
  s.canExport=next.canExportAnnotations!==false;$('save').disabled=!s.canExport;document.querySelectorAll('button[data-tool]:not([data-tool=select]),#selection-menu [data-action=highlight],#selection-menu [data-action=underline],#selection-menu [data-action=comment]').forEach(b=>b.disabled=!s.canExport);if(!s.canExport){setTool('select');toast(next.exportLimitation||'此 PDF 暂不支持写入标注')}
  s.readingAnchor={lineIndex:s.lineIndex,...(stored?.lineAnchor||{}),pageIndex:s.pageIndex};
  $('welcome').hidden=true;$('reader').hidden=false;$('save').hidden=false;$('open').hidden=false;$('doc-title').textContent=name.replace(/\.pdf$/i,'');document.title=name.replace(/\.pdf$/i,'')+' · ADHD Reader';$('page-count').textContent='/ '+next.numPages;
@@ -292,18 +297,18 @@ async function commitPageNumber(resume=false){
 }
 $('page-number').onchange=()=>commitPageNumber();
 $('page-number').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commitPageNumber(true)}else if(e.key==='Escape'){e.preventDefault();$('page-number').value=s.pageIndex+1;focusReader()}};
-const zoom=createPdfZoom({area:$('scroll-area'),shell:$('page-shell'),page:$('document-pages'),label:$('zoom-fit'),enabled:()=>Boolean(s.viewport)&&!$('reader').hidden&&$('busy').hidden&&s.renderedDocumentId===s.id&&s.renderedPageIndex===s.pageIndex,scale:()=>flow.scale,render:async(value,options={})=>{s.zoom=options.fit?null:value;return await renderPage(false)},interrupt:()=>{interruptReadingNavigation();press=null;clearTimeout(selectionClickTimer);clearSelection()}});
+const zoom=createPdfZoom({area:$('scroll-area'),shell:$('page-shell'),page:$('document-pages'),label:$('zoom-fit'),enabled:()=>Boolean(s.viewport)&&!$('reader').hidden&&$('busy').hidden&&s.renderedDocumentId===s.id&&s.renderedPageIndex===s.pageIndex,scale:()=>flow.scale,render:async(value,options={})=>{s.zoom=options.fit?null:value;return await renderPage(false)},interrupt:()=>{interruptReadingNavigation();press=null;erasePress=null;clearTimeout(selectionClickTimer);clearSelection()}});
 function fitDocumentWidth(){const available=$('scroll-area').clientWidth-(innerWidth<760?24:76);zoom.fit(Math.min(1.35,Math.max(.35,available/Math.max(...flow.records.map(r=>r.base.width)))))}
 $('zoom-out').onclick=()=>zoom.step(-.15);$('zoom-in').onclick=()=>zoom.step(.15);$('zoom-fit').onclick=fitDocumentWidth;
 let resizeTimer;window.addEventListener('resize',()=>{interruptReadingNavigation();clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(s.doc&&!$('reader').hidden&&!s.zoom)fitDocumentWidth()},180)});
 $('focus').onclick=()=>{s.focus=!s.focus;$('focus').classList.toggle('active',s.focus);$('focus').setAttribute('aria-pressed',s.focus);updateFocus(false)};
-function setTool(tool){if(tool!=='select'&&!s.canExport){toast(s.doc?.exportLimitation||'此文档仅可阅读');return}s.tool=tool;document.body.dataset.tool=tool;document.querySelectorAll('button[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===tool);b.setAttribute('aria-pressed',b.dataset.tool===tool)});clearSelection()}
+function setTool(tool){if(tool!=='select'&&!s.canExport){toast(s.doc?.exportLimitation||'此文档仅可阅读');return}s.tool=tool;erasePress=null;document.body.dataset.tool=tool;$('color').hidden=tool!=='highlight';document.querySelectorAll('button[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===tool);b.setAttribute('aria-pressed',b.dataset.tool===tool)});clearSelection()}
 document.querySelectorAll('button[data-tool]').forEach(b=>{
- b.onpointerdown=e=>{if(b.dataset.tool!=='select'&&(s.selection||captureSelection()))e.preventDefault()};
- b.onclick=()=>{const tool=b.dataset.tool;if(tool!=='select'&&(captureSelection()||s.selection))performAction(tool);else setTool(tool)};
+ b.onpointerdown=e=>{if(['highlight','underline','comment'].includes(b.dataset.tool)&&(s.selection||captureSelection()))e.preventDefault()};
+ b.onclick=()=>{const tool=b.dataset.tool;if(['highlight','underline','comment'].includes(tool)&&(captureSelection()||s.selection))performAction(tool);else setTool(tool)};
 });
 $('color').onpointerdown=e=>{if(s.selection)e.preventDefault()};
-$('color').onclick=()=>{s.color=palette[(palette.indexOf(s.color)+1)%palette.length];document.documentElement.style.setProperty('--note',s.color);persistSettings()};
+$('color').onclick=()=>{if(s.tool!=='highlight')return;s.color=palette[(palette.indexOf(s.color)+1)%palette.length];document.documentElement.style.setProperty('--note',s.color);persistSettings()};
 $('theme').onclick=()=>{s.theme=s.theme==='dark'?'light':'dark';updateTheme();persistSettings()};$('settings-toggle').onclick=()=>$('settings').hidden=!$('settings').hidden;$('settings-close').onclick=()=>$('settings').hidden=true;
 $('dim').oninput=e=>{s.dim=Number(e.target.value);$('dim-value').value=s.dim+'%';document.documentElement.style.setProperty('--dim',s.dim/100);persistSettings()};
 let notesLoadingDoc;
@@ -311,24 +316,95 @@ async function loadAllNativeAnnotations(){const doc=s.doc;if(!doc||notesLoadingD
 function toggleNotes(open){interruptReadingNavigation();$('notes-panel').hidden=open===undefined?!$('notes-panel').hidden:!open;if(s.doc&&!s.zoom&&innerWidth>760)fitDocumentWidth();if(!$('notes-panel').hidden)loadAllNativeAnnotations();return Promise.resolve(true)}$('notes-toggle').onclick=()=>toggleNotes();$('notes-close').onclick=()=>toggleNotes(false);
 
 function selectWord(x,y){return selectWordAtPoint(flow.getRecord(s.pageIndex)?.wordIndex,document,x,y)}
+let erasePress=null;
+const nativeKey=(pageIndex,id)=>`native:${pageIndex}:${id}`;
+const isNativeDeleted=(pageIndex,id)=>s.deletedAnnotations.some(a=>a.pageIndex===pageIndex&&a.id===id);
+function nativeAnnotation(a,pageIndex){
+ const type={Highlight:'highlight',Underline:'underline',Text:'comment'}[a.subtype];
+ if(!type||isNativeDeleted(pageIndex,a.id))return null;
+ const points=Array.from(a.quadPoints||[]).flatMap(p=>Array.isArray(p)?p.flatMap(q=>typeof q==='object'?[q.x,q.y]:q):typeof p==='object'?[p.x,p.y]:[p]);
+ const rects=[];
+ for(let i=0;i+7<points.length;i+=8){const q=points.slice(i,i+8);if(q.every(Number.isFinite))rects.push([Math.min(q[0],q[2],q[4],q[6]),Math.min(q[1],q[3],q[5],q[7]),Math.max(q[0],q[2],q[4],q[6]),Math.max(q[1],q[3],q[5],q[7])])}
+ if(!rects.length&&a.rect?.length===4)rects.push(a.rect);
+ const color=a.color?.length===3?'#'+Array.from(a.color).map(v=>Math.round(v).toString(16).padStart(2,'0')).join(''):'#b9bdc3';
+ return {key:nativeKey(pageIndex,a.id),id:a.id,pageIndex,type,rects,color,text:a.titleObj?.str||'PDF 原有标注',comment:a.contentsObj?.str||'',native:true,deletable:/^\d+R(?:\d+)?$/.test(a.id)};
+}
+function annotationEntries(record){
+ const native=(s.nativeByPage.get(record.index)||record.nativeAnnotations||[]).map(a=>nativeAnnotation(a,record.index)).filter(Boolean);
+ return [...native,...s.annotations.filter(a=>a.pageIndex===record.index).map(a=>({...a,key:a.id,native:false,deletable:true}))];
+}
+function screenAnnotations(record){return annotationEntries(record).filter(a=>a.deletable).map(a=>({...a,pdfRects:a.rects,rects:a.rects.map(r=>pdfRectToViewport(record.viewport,r))}))}
+function annotationAt(record,x,y){const b=record.element.getBoundingClientRect();return annotationAtPoint(screenAnnotations(record),{x:x-b.left,y:y-b.top},3)}
+function currentAnnotation(entry){
+ if(!entry)return null;
+ const record=flow.getRecord(entry.pageIndex);
+ return record&&annotationEntries(record).find(a=>a.key===entry.key);
+}
+function showAnnotationMenu(entry,x,y){
+ const a=currentAnnotation(entry);if(!a||!a.deletable||!s.canExport)return;
+ clearSelection();s.selectedAnnotation=a;
+ const record=flow.getRecord(a.pageIndex),base=record.element.getBoundingClientRect();
+ const rects=a.rects.map(r=>pdfRectToViewport(record.viewport,r));
+ for(const r of rects){const el=document.createElement('div');el.className='annotation-selection';el.dataset.annotationId=a.key;Object.assign(el.style,{left:r.x+'px',top:r.y+'px',width:r.width+'px',height:r.height+'px'});record.content.append(el)}
+ const r=rects.find(r=>x>=base.left+r.x-3&&x<=base.left+r.x+r.width+3&&y>=base.top+r.y-3&&y<=base.top+r.y+r.height+3)||rects[0];
+ if(!r)return;
+ $('annotation-menu').dataset.annotationId=a.key;$('annotation-comment').hidden=a.native;
+ placePopover($('annotation-menu'),{left:base.left+r.x,top:base.top+r.y,bottom:base.top+r.y+r.height},true);
+ focusReader();
+}
+function deleteAnnotations(entries,recordUndo=true){
+ const live=entries.map(currentAnnotation).filter(a=>a?.deletable);
+ if(!live.length||!s.canExport)return false;
+ const keys=new Set(live.filter(a=>!a.native).map(a=>a.id));
+ commitChange(()=>{s.annotations=s.annotations.filter(a=>!keys.has(a.id));for(const a of live)if(a.native&&!isNativeDeleted(a.pageIndex,a.id))s.deletedAnnotations.push({pageIndex:a.pageIndex,id:a.id})},recordUndo);
+ return true;
+}
+function erasePoint(x,y){
+ for(const record of flow.records){if(!record.ready)continue;const b=record.element.getBoundingClientRect();if(x<b.left||x>b.right||y<b.top||y>b.bottom)continue;const a=annotationAt(record,x,y);if(a&&deleteAnnotations([a],!erasePress?.changed)&&erasePress)erasePress.changed=true;return}
+}
+function eraseSegment(start,end){
+ const hits=[];
+ for(const record of flow.records){if(!record.ready)continue;const b=record.element.getBoundingClientRect();if(Math.max(start.y,end.y)<b.top||Math.min(start.y,end.y)>b.bottom||Math.max(start.x,end.x)<b.left||Math.min(start.x,end.x)>b.right)continue;hits.push(...annotationsAlongSegment(screenAnnotations(record),{x:start.x-b.left,y:start.y-b.top},{x:end.x-b.left,y:end.y-b.top},3))}
+ if(hits.length&&deleteAnnotations(hits,!erasePress?.changed)&&erasePress)erasePress.changed=true;
+}
+$('annotation-delete').onclick=()=>{deleteAnnotations([s.selectedAnnotation]);focusReader()};
+$('annotation-comment').onclick=()=>{const a=currentAnnotation(s.selectedAnnotation);if(a&&!a.native)editAnnotationComment(a)};
+for(const button of $('annotation-menu').querySelectorAll('button'))button.onpointerdown=e=>e.preventDefault();
 $('scroll-area').addEventListener('pointerdown',e=>{
+ if(e.isPrimary===false){erasePress=null;press=null;return}
  const element=e.target.closest('.pdf-page');if(!element)return;
  const record=flow.getRecord(Number(element.dataset.pageIndex));if(!record?.ready)return;
  if(record.index!==s.pageIndex)activatePage(record);
- if(e.button!==0||zoom.active||e.target.closest('.annotation-mark'))return;
- closeFloating();s.selection=null;press={x:e.clientX,y:e.clientY,moved:false};
+ if(e.button!==0||zoom.active)return;
+ closeFloating();s.selection=null;
+ if(s.tool==='erase'){
+  if(!s.canExport)return;clearSelection();press=null;
+  erasePress={id:e.pointerId,type:e.pointerType,x:e.clientX,y:e.clientY,last:{x:e.clientX,y:e.clientY},moved:false,changed:false,epoch:documentEpoch};
+  if(e.pointerType!=='touch'){e.preventDefault();$('scroll-area').setPointerCapture(e.pointerId);erasePoint(e.clientX,e.clientY)}
+  return;
+ }
+ press={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pageIndex:record.index};
 });
-window.addEventListener('pointermove',e=>{if(press&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>7)press.moved=true});
+window.addEventListener('pointermove',e=>{
+ if(press&&e.pointerId===press.id&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>7)press.moved=true;
+ const p=erasePress;if(!p||p.id!==e.pointerId||p.epoch!==documentEpoch||zoom.active)return;
+ const distance=Math.hypot(e.clientX-p.x,e.clientY-p.y);if(distance>7)p.moved=true;
+ if(p.type==='touch'||distance<3)return;
+ const next={x:e.clientX,y:e.clientY};eraseSegment(p.last,next);p.last=next;
+});
 window.addEventListener('pointerup',e=>{
- if(!press)return;const p=press,epoch=documentEpoch,intent=readingIntent;press=null;clearTimeout(selectionClickTimer);
+ if(erasePress?.id===e.pointerId){const p=erasePress;if(p.type==='touch'&&!p.moved&&p.epoch===documentEpoch&&!zoom.active)erasePoint(e.clientX,e.clientY);erasePress=null;return}
+ if(!press||press.id!==e.pointerId)return;const p=press,epoch=documentEpoch,intent=readingIntent;press=null;clearTimeout(selectionClickTimer);
  selectionClickTimer=setTimeout(()=>{
   if(epoch!==documentEpoch||intent!==readingIntent||s.rendering||zoom.active)return;
-  if(captureSelection()){if(s.tool!=='select')performAction(s.tool);else showSelectionMenu();return}
-  if(!p.moved&&$('page-wrap').contains(e.target)){const b=$('page-wrap').getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top,index=nearestLine(x,y,e.target),rect=index>=0&&focusRect(s.lines,index,1,s.viewport);if(rect&&x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height)setLine(index,false);$('scroll-area').focus({preventScroll:true})}
+  if(captureSelection()){if(['highlight','underline','comment'].includes(s.tool))performAction(s.tool);else showSelectionMenu();return}
+  const record=flow.getRecord(p.pageIndex);if(!record?.ready||p.moved||!record.element.contains(e.target))return;
+  if(s.tool==='select'){const a=annotationAt(record,e.clientX,e.clientY);if(a){showAnnotationMenu(a,e.clientX,e.clientY);return}}
+  const b=record.element.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top,index=nearestLine(x,y,e.target),rect=index>=0&&focusRect(s.lines,index,1,s.viewport);if(rect&&x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height)setLine(index,false);focusReader();
  },0);
 });
-window.addEventListener('pointercancel',()=>{press=null});
-$('scroll-area').addEventListener('dblclick',e=>{if(!e.target.closest('.pdf-page'))return;clearTimeout(selectionClickTimer);if(selectWord(e.clientX,e.clientY)&&captureSelection())showSelectionMenu()});
+window.addEventListener('pointercancel',()=>{press=null;erasePress=null});
+$('scroll-area').addEventListener('dblclick',e=>{if(s.tool==='erase'||!e.target.closest('.pdf-page'))return;clearTimeout(selectionClickTimer);closeFloating();if(selectWord(e.clientX,e.clientY)&&captureSelection())showSelectionMenu()});
 
 function captureSelection(){
  if(s.rendering||zoom.active||s.renderedPageIndex!==s.pageIndex)return false;
@@ -358,7 +434,15 @@ function showSelectionMenu(){if(s.selection)placePopover($('selection-menu'),s.s
 async function showTranslation(){if(!s.selection)return;const selection=s.selection;const generation=++translationGeneration;$('selection-menu').hidden=true;$('translation-word').textContent=selection.text;$('translation-result').textContent='查询中…';placePopover($('translation'),selection.anchor);try{const result=await translate(selection.text,{context:s.lines.slice(Math.max(0,s.lineIndex-4),s.lineIndex+5).map(line=>line.text).join(' ')});if(generation!==translationGeneration)return;$('translation-result').textContent=result;placePopover($('translation'),selection.anchor)}catch(e){if(generation!==translationGeneration)return;$('translation-result').textContent=e.name==='AbortError'?'查询超时，请重试':e.message}}
 $('translation-close').onclick=clearSelection;
 document.querySelectorAll('[data-action]').forEach(b=>{b.onpointerdown=e=>e.preventDefault();b.onclick=()=>performAction(b.dataset.action)});
-function commitChange(fn){if(!s.canExport)return;s.undo.push(structuredClone(s.annotations));if(s.undo.length>100)s.undo.shift();s.redo=[];fn();drawAnnotations();renderNotes();updateSaveStatus();persist()}
+function refreshAnnotationState(){
+ closeFloating();
+ const affected=applyDeletedAnnotationsToDocument(s.doc,s.deletedAnnotations);
+ drawAnnotations();renderNotes();updateSaveStatus();persist();
+ if(affected.length)flow.rerenderAnnotations(affected).catch(error=>{if(error.name!=='AbortError'&&error.name!=='RenderingCancelledException')console.error(error)});
+}
+function commitChange(fn,recordUndo=true){if(!s.canExport)return;if(recordUndo){s.undo.push(annotationState());if(s.undo.length>100)s.undo.shift();s.redo=[]}fn();refreshAnnotationState()}
+function editAnnotationComment(a){commentEditing=a.id;closeFloating();$('comment-quote').textContent=a.text||'';$('comment-text').value=a.comment||'';$('comment-dialog').showModal();$('comment-text').focus()}
+
 function performAction(type){if(s.rendering||s.renderedPageIndex!==s.pageIndex)return;captureSelection();const selection=s.selection;if(!selection)return;if(type==='translate'){showTranslation();return}if(type==='copy'){navigator.clipboard.writeText(selection.text).then(()=>toast('已复制')).catch(()=>toast('复制失败，可用 Ctrl C'));return}if(!s.canExport){toast(s.doc.exportLimitation);return}if(type==='comment'){commentEditing=null;commentTarget={documentId:s.id,pageIndex:selection.segments[0].pageIndex,rotation:selection.segments[0].rotation,selection:structuredClone(selection)};$('comment-quote').textContent=selection.text;$('comment-text').value='';$('comment-dialog').showModal();$('comment-text').focus();return}commitChange(()=>{for(const segment of selection.segments)s.annotations.push({id:crypto.randomUUID(),...segment,rects:type==='underline'?underlinePdfRects(segment.rects,segment.rotation):segment.rects,type,color:type==='underline'?'#000000':s.color,comment:''})});clearSelection()}
 $('comment-save').onclick=()=>{const value=$('comment-text').value.trim();const existing=commentEditing&&s.annotations.find(a=>a.id===commentEditing);if(!value&&(!existing||existing.type==='comment')){$('comment-text').focus();return}if(existing){commitChange(()=>existing.comment=value)}else if(commentTarget?.documentId===s.id){const target=commentTarget;commitChange(()=>s.annotations.push({id:crypto.randomUUID(),pageIndex:target.pageIndex,rotation:target.rotation,type:'comment',rects:target.selection.rects,text:target.selection.text,color:s.color,comment:value}))}$('comment-dialog').close();clearSelection()};
 $('comment-dialog').addEventListener('close',()=>{commentTarget=null;commentEditing=null;clearSelection()});
@@ -372,11 +456,31 @@ function drawRecordAnnotations(record){
  }
  paintRecordFocus(record);
 }
-function renderNotes(){const list=$('notes-list');list.replaceChildren();const native=[];for(const [pageIndex,items] of s.nativeByPage)for(const a of items){if(['Highlight','Underline','Text','FreeText','StrikeOut'].includes(a.subtype))native.push({id:'native:'+a.id,pageIndex,type:a.subtype.toLowerCase(),text:a.titleObj?.str||'PDF 原有标注',comment:a.contentsObj?.str||'',color:'#a5b7a1',readonly:true,rects:[a.rect]})}const notes=[...s.annotations,...native].sort((a,b)=>a.pageIndex-b.pageIndex);if(!notes.length){const p=document.createElement('p');p.className='note-empty';p.textContent='暂无标注';list.append(p);return}for(const a of notes){const card=document.createElement('div');card.className='note-card';card.style.setProperty('--note-color',a.color);const quote=document.createElement('button');quote.type='button';quote.className='note-quote';quote.textContent=a.text||'标注';quote.onclick=async()=>{const epoch=documentEpoch;if(innerWidth<=760)await toggleNotes(false);if(epoch!==documentEpoch)return;if(s.pageIndex!==a.pageIndex&&!await goPage(a.pageIndex))return;if(epoch!==documentEpoch)return;const r=pdfRectToViewport(s.viewport,a.rects[0]);setLine(nearestLine(r.x+r.width/2,r.y+r.height/2));focusReader()};card.append(quote);if(a.comment){const p=document.createElement('p');p.className='note-comment';p.textContent=a.comment;card.append(p)}const meta=document.createElement('div');meta.className='note-meta';const page=document.createElement('span');page.textContent=`第 ${a.pageIndex+1} 页${a.readonly?' · PDF 原有':''}`;meta.append(page);if(!a.readonly){const actions=document.createElement('div');const edit=document.createElement('button');edit.textContent='评论';edit.disabled=!s.canExport;edit.onclick=()=>{commentEditing=a.id;$('comment-quote').textContent=a.text||'';$('comment-text').value=a.comment||'';$('comment-dialog').showModal();$('comment-text').focus()};const del=document.createElement('button');del.textContent='删除';del.disabled=!s.canExport;del.onclick=()=>commitChange(()=>s.annotations=s.annotations.filter(n=>n.id!==a.id));actions.append(edit,del);meta.append(actions)}card.append(meta);list.append(card)}}
-function undo(redo=false){if(!s.canExport)return;const from=redo?s.redo:s.undo,to=redo?s.undo:s.redo;if(!from.length)return;to.push(structuredClone(s.annotations));s.annotations=from.pop();drawAnnotations();renderNotes();updateSaveStatus();persist()}
-async function savePDF(){if(!s.doc||!s.canExport)return;const source={id:s.id,name:s.name,bytes:s.bytes,epoch:documentEpoch,intent:openGeneration};busy(true,'正在保存');try{const annotations=structuredClone(s.annotations);const bytes=await exportAnnotatedPdf(source.bytes,annotations);const blob=new Blob([bytes],{type:'application/pdf'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=source.name.replace(/\.pdf$/i,'')+'-annotated.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);if(documentEpoch===source.epoch){s.savedSignature=JSON.stringify(annotations);await persist(true);updateSaveStatus()}}catch(e){console.error(e);toast(e.message||'保存失败，请重试')}finally{if(openGeneration===source.intent)busy(false)}}$('save').onclick=savePDF;
-document.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||!document.getElementById('busy').hidden)return;const typing=e.target.closest('input,textarea,select,[contenteditable=true]');const dialog=document.querySelector('dialog[open]');if(e.key==='Escape'){closeFloating();$('settings').hidden=true;if(!dialog)clearSelection();return}if(typing||dialog||(e.target.closest('button')&&e.key==='Enter'))return;const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();$('file-input').click();return}if(!s.doc||$('reader').hidden)return;if(e.target.closest('#scroll-area')&&['PageDown','PageUp','Home','End',' '].includes(e.key)){interruptReadingNavigation();return}if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();savePDF();return}if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();undo(e.shiftKey);return}if(mod&&e.key.toLowerCase()==='y'){e.preventDefault();undo(true);return}if(mod||e.altKey||e.shiftKey)return;if(e.key==='Enter'&&captureSelection()){e.preventDefault();if(!e.repeat)showTranslation();return}if(['ArrowUp','ArrowDown','Enter'].includes(e.key)){e.preventDefault();moveLine(e.key==='ArrowUp'?-1:1);return}const key=e.key.toLowerCase();if(key==='f')$('focus').click();else if(key==='v')setTool('select');else if(key==='h')s.selection?performAction('highlight'):setTool('highlight');else if(key==='u')s.selection?performAction('underline'):setTool('underline');else if(key==='n')s.selection?performAction('comment'):setTool('comment')});
-document.addEventListener('pointerdown',e=>{if(!$('settings').contains(e.target)&&!$('settings-toggle').contains(e.target))$('settings').hidden=true;if(!e.target.closest('#page-wrap,.popover,dialog,[data-tool],#color')&&!$('selection-menu').hidden)clearSelection()});$('scroll-area').addEventListener('scroll',()=>{const area=$('scroll-area');if(readingScroll.active?!readingScroll.isExpectedPosition({top:area.scrollTop,left:area.scrollLeft}):readingViewportMoved()||waitingReadingViewportMoved())interruptReadingNavigation();closeFloating();refreshVisible()},{passive:true});
+function renderNotes(){
+ const list=$('notes-list');list.replaceChildren();const native=[];
+ for(const [pageIndex,items] of s.nativeByPage)for(const item of items){
+  const editable=nativeAnnotation(item,pageIndex);if(editable)native.push(editable);
+  else if(['FreeText','StrikeOut'].includes(item.subtype))native.push({key:nativeKey(pageIndex,item.id),id:item.id,pageIndex,type:item.subtype.toLowerCase(),text:item.titleObj?.str||'PDF 原有标注',comment:item.contentsObj?.str||'',color:'#b9bdc3',native:true,deletable:false,rects:[item.rect]});
+ }
+ const notes=[...s.annotations.map(a=>({...a,key:a.id,deletable:true,native:false})),...native].sort((a,b)=>a.pageIndex-b.pageIndex);
+ if(!notes.length){const p=document.createElement('p');p.className='note-empty';p.textContent='暂无标注';list.append(p);return}
+ for(const a of notes){
+  const card=document.createElement('div');card.className='note-card';card.dataset.annotationId=a.key;card.style.setProperty('--note-color',a.color);
+  const quote=document.createElement('button');quote.type='button';quote.className='note-quote';quote.textContent=a.text||'标注';
+  quote.onclick=async()=>{const epoch=documentEpoch;if(innerWidth<=760)await toggleNotes(false);if(epoch!==documentEpoch)return;if(s.pageIndex!==a.pageIndex&&!await goPage(a.pageIndex))return;if(epoch!==documentEpoch)return;const r=pdfRectToViewport(s.viewport,a.rects[0]);setLine(nearestLine(r.x+r.width/2,r.y+r.height/2));if(a.deletable){const b=flow.getRecord(a.pageIndex).element.getBoundingClientRect();showAnnotationMenu(a,b.left+r.x,b.top+r.y)}focusReader()};
+  card.append(quote);if(a.comment){const p=document.createElement('p');p.className='note-comment';p.textContent=a.comment;card.append(p)}
+  const meta=document.createElement('div');meta.className='note-meta';const page=document.createElement('span');page.textContent=`第 ${a.pageIndex+1} 页${a.native?' · PDF 原有':''}`;meta.append(page);
+  const actions=document.createElement('div');
+  if(!a.native){const edit=document.createElement('button');edit.textContent='评论';edit.disabled=!s.canExport;edit.onclick=()=>editAnnotationComment(a);actions.append(edit)}
+  if(a.deletable){const del=document.createElement('button');del.textContent='删除';del.disabled=!s.canExport;del.onclick=()=>deleteAnnotations([a]);actions.append(del)}
+  meta.append(actions);card.append(meta);list.append(card);
+ }
+}
+function undo(redo=false){if(!s.canExport)return;const from=redo?s.redo:s.undo,to=redo?s.undo:s.redo;if(!from.length)return;erasePress=null;to.push(annotationState());Object.assign(s,from.pop());refreshAnnotationState()}
+
+async function savePDF(){if(!s.doc||!s.canExport)return;const source={id:s.id,name:s.name,bytes:s.bytes,epoch:documentEpoch,intent:openGeneration};busy(true,'正在保存');try{const snapshot=annotationState();const bytes=await exportAnnotatedPdf(source.bytes,snapshot.annotations,snapshot.deletedAnnotations);const blob=new Blob([bytes],{type:'application/pdf'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=source.name.replace(/\.pdf$/i,'')+'-annotated.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);if(documentEpoch===source.epoch){s.savedSignature=stateSignature(snapshot);await persist(true);updateSaveStatus()}}catch(e){console.error(e);toast(e.message||'保存失败，请重试')}finally{if(openGeneration===source.intent)busy(false)}}$('save').onclick=savePDF;
+document.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||!document.getElementById('busy').hidden)return;const typing=e.target.closest('input,textarea,select,[contenteditable=true]');const dialog=document.querySelector('dialog[open]');if(e.key==='Escape'){closeFloating();$('settings').hidden=true;if(!dialog)clearSelection();return}if(typing||dialog||(e.target.closest('button')&&e.key==='Enter'))return;const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();$('file-input').click();return}if(!s.doc||$('reader').hidden)return;if(e.target.closest('#scroll-area')&&['PageDown','PageUp','Home','End',' '].includes(e.key)){interruptReadingNavigation();return}if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();savePDF();return}if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();undo(e.shiftKey);return}if(mod&&e.key.toLowerCase()==='y'){e.preventDefault();undo(true);return}if(mod||e.altKey||e.shiftKey)return;if(['Delete','Backspace'].includes(e.key)&&s.selectedAnnotation){e.preventDefault();deleteAnnotations([s.selectedAnnotation]);return}if(e.key==='Enter'&&captureSelection()){e.preventDefault();if(!e.repeat)showTranslation();return}if(['ArrowUp','ArrowDown','Enter'].includes(e.key)){e.preventDefault();moveLine(e.key==='ArrowUp'?-1:1);return}const key=e.key.toLowerCase();if(key==='f')$('focus').click();else if(key==='v')setTool('select');else if(key==='h')s.selection?performAction('highlight'):setTool('highlight');else if(key==='u')s.selection?performAction('underline'):setTool('underline');else if(key==='n')s.selection?performAction('comment'):setTool('comment');else if(key==='e')setTool('erase')});
+document.addEventListener('pointerdown',e=>{if(!$('settings').contains(e.target)&&!$('settings-toggle').contains(e.target))$('settings').hidden=true;if(!e.target.closest('.pdf-page,.popover,dialog,[data-tool],#color')&&(!$('selection-menu').hidden||!$('annotation-menu').hidden))clearSelection()});$('scroll-area').addEventListener('scroll',()=>{erasePress=null;const area=$('scroll-area');if(readingScroll.active?!readingScroll.isExpectedPosition({top:area.scrollTop,left:area.scrollLeft}):readingViewportMoved()||waitingReadingViewportMoved())interruptReadingNavigation();closeFloating();refreshVisible()},{passive:true});
 // Pointer toolbar actions finish in the reader. Tab/Enter activation keeps its
 // native button focus so keyboard users can continue through the controls.
 document.addEventListener('click',e=>{if(e.detail>0&&!$('reader').hidden&&e.target.closest('button')?.matches('[data-tool],#focus,#theme,#color,#zoom-out,#zoom-in,#zoom-fit,#prev-page,#next-page,#notes-toggle,#notes-close,#settings-close,#save'))focusReader()});

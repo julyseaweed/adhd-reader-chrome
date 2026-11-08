@@ -23,18 +23,21 @@ The ZIP is an unpacked-extension package, not a Chrome Web Store installation. T
 - Click a text line to place the guide. Up moves to the previous reading unit; Down or Enter moves to the next one, across columns and pages. The guide stays on one reading unit and gently recenters when needed.
 - Wheel, touch and scrollbar movement browse the document without changing the locked reading position. The next reading key resumes from that position. Explicit page navigation starts at that page; clicking text sets a new position.
 - Figure and table interiors are skipped during line navigation, while captions and notes remain readable. Their text stays available for selection and annotation. Fractions, roots, scripts and other formula parts are grouped into reading units.
-- Drag or double-click to select text. Use the floating toolbar or the highlight, underline and comment tools. Highlights cycle through pale yellow, blue and gray. Underlines export as black PDF underlines.
+- Drag or double-click to select text. Use the floating toolbar or the highlight, underline and comment tools. The color control appears only in highlight mode and cycles through pale yellow, blue and gray. Underlines always export as black PDF underlines.
 - Press Enter with a selection to show Chinese meanings next to it. English words use the bundled offline dictionary first; phrases, other languages and missing words use online translation.
-- Edit comments or delete annotations created here from the annotation panel. Undo and redo are available. Existing annotations in an imported PDF are preserved and displayed as read-only.
+- In select mode, click an annotation to open its menu. Delete it, or edit a comment created in this reader. Delete and Backspace remove the selected annotation; the annotation panel also provides editing and deletion.
+- Press E to erase: click one annotation or drag across several. Each stroke is one undo step. Touch scrolling does not erase annotations. Undo and redo also restore deletions.
+- Imported standard Highlight, Underline and Text annotations can be deleted. Other imported annotation types remain read-only and are preserved. Marks flattened into page content cannot be erased as annotations.
 - **Save PDF** downloads an annotated copy. Highlights, underlines and comments are written as standard PDF annotations with appearance streams and Unicode comments, so other readers, including Zotero, can display them.
-- Day mode is the default. The day/night choice and surrounding-text dimming are remembered. Pinch or trackpad zoom changes the PDF while the toolbar stays the same size.
+- Day mode is the default. The day/night choice and surrounding-text dimming are remembered. Pinch and trackpad zoom respond to smaller gestures, changing only the PDF while the toolbar stays the same size.
 
 | Key | Action |
 | --- | --- |
 | Up / Down | Previous / next reading unit |
 | Enter | Translate selected text; otherwise next reading unit |
 | F | Toggle the line guide |
-| V / H / U / N | Select / highlight / underline / comment |
+| V / H / U / N / E | Select / highlight / underline / comment / erase |
+| Delete / Backspace | Delete the selected annotation |
 | Ctrl or Cmd + O | Open PDF |
 | Ctrl or Cmd + S | Download annotated PDF |
 | Ctrl or Cmd + Z | Undo |
@@ -108,18 +111,21 @@ ADHD Reader 是一个本地 PDF 阅读器，提供持久的单行引导、连续
 - 点击文字行定位；上键读上一单元，下键或 Enter 读下一单元，可跨栏和跨页。引导固定为一个阅读单元，需要时柔和回移。
 - 滚轮、触摸和滚动条只浏览页面，不改变锁定的阅读位置。再次按阅读键会从原位置继续。主动翻页从该页开始，点击文字会重新定位。
 - 逐行阅读跳过图片和表格内部，保留图注、表题和表注；图表内文字仍可选择和标注。分式、根号、上下标等公式部分会组合为完整阅读单元。
-- 拖选或双击文字后使用浮动工具栏，也可先选高亮、下划线或评论工具。高亮可切换淡黄、淡蓝、淡灰，下划线按黑色 PDF 下划线导出。
+- 拖选或双击文字后使用浮动工具栏，也可先选高亮、下划线或评论工具。颜色控件仅在高亮模式显示，可切换淡黄、淡蓝、淡灰；下划线始终按黑色 PDF 下划线导出。
 - 有选区时按 Enter，在旁边显示中文含义。英文单词优先使用随包离线词典；短语、其他语言及未收录词使用在线翻译。
-- 标注面板可修改评论、删除本阅读器创建的标注，并支持撤销、重做。导入前已有的 PDF 标注会保留，在本版中只读显示。
+- 在选取模式点击已有标注，弹出菜单可删除标注，或修改本阅读器创建的评论。Delete、Backspace 可删除选中的标注；标注面板也提供编辑和删除操作。
+- 按 E 切换擦除工具，点击擦除一条标注，拖动可擦除经过的多条。一次拖擦对应一步撤销；触摸滚动不会擦除标注。删除支持撤销、重做。
+- 导入 PDF 中标准的 Highlight（高亮）、Underline（下划线）、Text（评论）标注可删除，其他原有标注保留并只读显示。已扁平化到页面内容中的痕迹不能作为标注擦除。
 - 「保存 PDF」下载带标注的副本。高亮、下划线和评论以标准 PDF 标注、外观流及 Unicode 评论写入，Zotero 等其他阅读器也能显示。
-- 默认白天模式，记住日夜模式及周围文字淡化偏好。触摸或触控板缩放只改变 PDF，工具栏保持原尺寸。
+- 默认白天模式，记住日夜模式及周围文字淡化偏好。双指和触控板缩放响应更灵敏，只改变 PDF，工具栏保持原尺寸。
 
 | 按键 | 操作 |
 | --- | --- |
 | 上 / 下 | 上一 / 下一阅读单元 |
 | Enter | 有选区时翻译，否则下一阅读单元 |
 | F | 开关行引导 |
-| V / H / U / N | 选取 / 高亮 / 下划线 / 评论 |
+| V / H / U / N / E | 选取 / 高亮 / 下划线 / 评论 / 擦除 |
+| Delete / Backspace | 删除选中的标注 |
 | Ctrl 或 Cmd + O | 打开 PDF |
 | Ctrl 或 Cmd + S | 下载带标注的 PDF |
 | Ctrl 或 Cmd + Z | 撤销 |

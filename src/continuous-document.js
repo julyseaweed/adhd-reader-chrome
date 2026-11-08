@@ -55,7 +55,7 @@ export class ContinuousDocument {
         content.style.width = viewport.width + 'px';
         content.style.height = viewport.height + 'px';
         element.append(content); fragment.append(element);
-        const record = { index, page, base, viewport, element, content, lines: [], layout: null, textLineMap: new WeakMap(), excludedText: new WeakSet(), nativeAnnotations: [], ready: false, scale, _targetViewport: viewport };
+        const record = { index, page, base, viewport, element, content, lines: [], layout: null, textLineMap: new WeakMap(), excludedText: new WeakSet(), nativeAnnotations: [], annotationRevision: 0, renderedAnnotationRevision: -1, ready: false, scale, _targetViewport: viewport };
         this._empty(record);
         return record;
       });
@@ -136,20 +136,37 @@ export class ContinuousDocument {
 
   ensure(index) { return this._ensure(index, false); }
 
+  // Keep the current bitmap, text and reading aperture until the replacement is
+  // ready. Annotation edits invalidate only their own pages, not the document.
+  rerenderAnnotations(indices) {
+    const pending = [];
+    for (const index of new Set(indices)) {
+      const record = this.records[index];
+      if (!record) continue;
+      record.annotationRevision++;
+      const job = this._jobs.get(index);
+      if (job) this._cancelJob(job);
+      if (record.canvas.width || record.ready) pending.push(this._ensure(index, false).catch(error => {
+        if (!isCancellation(error)) throw error;
+      }));
+    }
+    return Promise.all(pending);
+  }
+
   _ensure(index, automatic) {
     const record = this.records[index];
     if (!record || !this.doc) return Promise.reject(new RangeError('PDF page is not available'));
-    if (record.ready && record.scale === this.scale) return Promise.resolve(record);
+    if (record.ready && record.scale === this.scale && record.renderedAnnotationRevision === record.annotationRevision) return Promise.resolve(record);
     const existing = this._jobs.get(index);
-    if (existing && !existing.cancelled && existing.generation === this._generation && existing.scaleVersion === this._scaleVersion) {
+    if (existing && !existing.cancelled && existing.generation === this._generation && existing.scaleVersion === this._scaleVersion && existing.annotationRevision === record.annotationRevision) {
       if (!automatic) existing.automatic = false;
       return existing.promise;
     }
     if (existing) this._cancelJob(existing);
-    const job = { index, generation: this._generation, scaleVersion: this._scaleVersion, automatic, cancelled: false, renderTask: null, textTask: null, promise: null };
+    const job = { index, generation: this._generation, scaleVersion: this._scaleVersion, annotationRevision: record.annotationRevision, annotationOnly: record.ready && record.scale === this.scale, automatic, cancelled: false, renderTask: null, textTask: null, promise: null };
     this._jobs.set(index, job);
     const check = () => {
-      if (job.cancelled || job.generation !== this._generation || job.scaleVersion !== this._scaleVersion || this.records[index] !== record) throw cancelled();
+      if (job.cancelled || job.generation !== this._generation || job.scaleVersion !== this._scaleVersion || job.annotationRevision !== record.annotationRevision || this.records[index] !== record) throw cancelled();
     };
     job.promise = (async () => {
       const viewport = record._targetViewport;
@@ -159,8 +176,19 @@ export class ContinuousDocument {
         const ratio = Math.min(this.container.ownerDocument.defaultView?.devicePixelRatio || 1, 2, Math.sqrt(20000000 / (viewport.width * viewport.height)));
         children.canvas.width = Math.max(1, Math.floor(viewport.width * ratio));
         children.canvas.height = Math.max(1, Math.floor(viewport.height * ratio));
-        job.renderTask = record.page.render({ canvasContext: children.canvas.getContext('2d'), viewport, transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null });
+        job.renderTask = record.page.render({ canvasContext: children.canvas.getContext('2d'), viewport, annotationMode: pdfjsLib.AnnotationMode.ENABLE_STORAGE, transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null });
         await job.renderTask.promise; check();
+        if (job.annotationOnly) {
+          // A deletion changes the annotation appearance, not text geometry.
+          // Preserve the live Range, word index and guide while swapping pixels.
+          const oldCanvas = record.canvas;
+          oldCanvas.replaceWith(children.canvas);
+          Object.assign(record, { canvas: children.canvas, renderedAnnotationRevision: job.annotationRevision, error: null });
+          oldCanvas.width = 0; oldCanvas.height = 0;
+          if (this.activeIndex === index) this.activate(index);
+          this._notify(this.onRendered, record);
+          return record;
+        }
         const [textContent, nativeAnnotations] = await Promise.all([record.page.getTextContent(), record.page.getAnnotations({ intent: 'display' })]);
         check();
         const layout = await extractReadingLayout(record.page, viewport, textContent);
@@ -189,7 +217,7 @@ export class ContinuousDocument {
         record.content.replaceChildren(children.canvas, children.annotationsLayer, children.focusLayer, children.textLayer);
         record.content.style.width = viewport.width + 'px'; record.content.style.height = viewport.height + 'px';
         record.content.style.transform = '';
-        Object.assign(record, children, { viewport, scale: this.scale, lines: layout.lines, layout, textLineMap, excludedText, wordIndex, nativeAnnotations, ready: true, error: null });
+        Object.assign(record, children, { viewport, scale: this.scale, renderedAnnotationRevision: job.annotationRevision, lines: layout.lines, layout, textLineMap, excludedText, wordIndex, nativeAnnotations, ready: true, error: null });
         record.element.dataset.ready = 'true';
         if (oldCanvas) { oldCanvas.width = 0; oldCanvas.height = 0; }
         if (this.activeIndex === index) this.activate(index);
@@ -253,7 +281,7 @@ export class ContinuousDocument {
     while (generation === this._generation) {
       const plan = this._visiblePlan;
       if (!plan || plan.generation !== generation) return;
-      const index = plan.wanted.find(index => !plan.failed.has(index) && (!this.records[index].ready || this.records[index].scale !== this.scale));
+      const index = plan.wanted.find(index => !plan.failed.has(index) && (!this.records[index].ready || this.records[index].scale !== this.scale || this.records[index].renderedAnnotationRevision !== this.records[index].annotationRevision));
       if (index === undefined) { this._emitVisible(plan); return; }
       try { await this._ensure(index, true); }
       catch (error) {

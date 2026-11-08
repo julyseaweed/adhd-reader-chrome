@@ -5,6 +5,7 @@ import { ordinaryMetrics, glyphMapForPage, fontMetrics } from './glyph-metrics.j
 import { mergeItems, attachScriptFragments, readingFrameRect, orderReadingLines } from './reading-lines.js';
 import { extractDrawingStructures } from './pdf-structure.js';
 import { buildReadingUnits } from './math-reading.js';
+import { deletePdfAnnotations } from './annotation-deletions.js';
 
 // The application stores geometry in the PDF's unrotated coordinate system.
 // Display coordinates must always go through the viewport, including CropBox offsets.
@@ -301,14 +302,16 @@ function makeAppearance(context, type, rects, bounds, color, rotation) {
 /** Export standard, editable annotations with explicit appearance streams.
  * @param {Uint8Array|ArrayBuffer} originalBytes Original imported PDF, never a previous export.
  * @param {Array<{id:string,pageIndex:number,type:string,rects:number[][],rotation?:number,comment?:string,color?:string,text?:string}>} annotations
+ * @param {Array<{pageIndex:number,id:string}>} deletedAnnotations PDF.js annotation reference IDs.
  */
-export async function exportAnnotatedPdf(originalBytes, annotations) {
+export async function exportAnnotatedPdf(originalBytes, annotations, deletedAnnotations = []) {
   let document;
   try { document = await PDFDocument.load(originalBytes, { updateMetadata: false }); }
   catch (error) {
     if (/encrypt/i.test(error.message)) throw new Error('此 PDF 已加密。请先保存一份未加密的副本，再导出标注。');
     throw error;
   }
+  deletePdfAnnotations(document, deletedAnnotations);
   const pages = document.getPages(), context = document.context;
   const stamp = PDFString.fromDate(new Date());
   const usedIds = new Set();
@@ -324,7 +327,7 @@ export async function exportAnnotatedPdf(originalBytes, annotations) {
     if (!rects.length) throw new Error('标注缺少选区');
     const bounds = annotation.type === 'comment'
       ? [rects[0][0], rects[0][3] - 18, rects[0][0] + 18, rects[0][3]] : union(rects);
-    const color = colorComponents(annotation.color ?? (annotation.type === 'underline' ? '#000000' : undefined));
+    const color = annotation.type === 'underline' ? [0, 0, 0] : colorComponents(annotation.color);
     const quads = rects.flatMap(r => quadForRect(r, rotation));
     const appearance = makeAppearance(context, annotation.type, rects, bounds, color, rotation);
     const name = `linea:${annotation.id}`;
