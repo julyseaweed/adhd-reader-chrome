@@ -45,17 +45,19 @@ svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width:
 button [data-icon] { display: flex; }
 [hidden] { display: none !important; }
 #app { min-height: 100dvh; background: var(--bg); color: var(--ink); }
-.topbar { height: 62px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); align-items: center; padding: 0 26px; gap: 24px; background: var(--surface); }
+.topbar { height: 62px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, 1fr) minmax(max-content, 1fr); align-items: center; padding: 0 26px; gap: 24px; background: var(--surface); }
 .brand { justify-self: start; font-size: 15px; font-weight: 550; letter-spacing: 0; padding: 4px 0; white-space: nowrap; border-radius: 4px; }
 #doc-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 12px; color: var(--muted); }
-.header-actions { justify-self: end; display: flex; gap: 7px; align-items: center; }
+.header-actions { justify-self: end; display: flex; gap: 7px; align-items: center; min-width: max-content; }
+.header-actions > button { flex: 0 0 auto; }
 .icon-button { width: 36px; height: 36px; border-radius: 5px; padding: 8px; }
 .icon-button:hover, .tool-button:hover, .zoom-label:hover, .secondary:hover { background: var(--hover); }
 .icon-button.active, .tool-button.active { color: var(--ink); background: var(--hover); }
 .primary { background: var(--accent); color: var(--surface); padding: 12px 19px; border-radius: 5px; font-size: 13px; font-weight: 550; }
 .primary:hover { filter: brightness(1.1); }
 .primary.small { height: 36px; padding: 8px 13px; margin-left: 8px; }
-#save { background: transparent; color: var(--ink); border: 1px solid var(--ink); font-weight: 400; }
+#save { background: transparent; color: var(--ink); border: 1px solid var(--ink); font-weight: 400; white-space: nowrap; }
+.save-label { white-space: nowrap; }
 #save:hover { background: var(--hover); filter: none; }
 .primary svg { width: 16px; }
 .secondary { padding: 10px 17px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; }
@@ -169,12 +171,14 @@ dialog input[type="password"] { margin-top: 20px; width: 100%; padding: 10px; bo
    gets one quiet location marker; PDF shortcuts do not restyle the toolbar. */
 html[data-keyboard-navigation] button:focus-visible,
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; box-shadow: inset 0 -2px 0 currentColor; }
+#page-number:focus-visible { box-shadow: none; background: var(--hover); }
 @media (max-width: 760px) {
   .topbar { height: 56px; padding: 0 14px; gap: 10px; grid-template-columns: auto minmax(0, 1fr) auto; }
   .brand { font-size: 13px; }
   .header-actions { gap: 2px; }
   #doc-title { font-size: 11px; }
-  .primary.small { position: relative; font-size: 0; width: 34px; padding: 0; gap: 0; margin-left: 1px; }
+  .primary.small { position: relative; width: 34px; padding: 0; gap: 0; margin-left: 1px; }
+  .primary.small .save-label { display: none; }
   .primary.small svg { width: 17px; }
   .primary.small #dirty-dot { position: absolute; right: 3px; top: 1px; font-size: 15px; line-height: 1; }
   #reader { height: calc(100dvh - 56px); }
