@@ -1,5 +1,6 @@
 import { extractReadingLayout, pdfjsLib } from './pdf-engine.js';
 import { alignTextLayer } from './text-layer-layout.js';
+import { textAdvancesForPage } from './text-advances.js';
 import { createWordIndex } from './word-selection.js';
 
 const GAP = 16;
@@ -191,7 +192,10 @@ export class ContinuousDocument {
         }
         const [textContent, nativeAnnotations] = await Promise.all([record.page.getTextContent(), record.page.getAnnotations({ intent: 'display' })]);
         check();
-        const layout = await extractReadingLayout(record.page, viewport, textContent);
+        const [layout, textAdvances] = await Promise.all([
+          extractReadingLayout(record.page, viewport, textContent),
+          textAdvancesForPage(record.page, textContent, pdfjsLib.OPS),
+        ]);
         check();
         // Generic browser fonts depend on language. PDF.js measures on a canvas
         // using textContent.lang; DOM spans must use that same explicit language,
@@ -200,7 +204,7 @@ export class ContinuousDocument {
         children.textLayer.lang = language;
         job.textTask = new pdfjsLib.TextLayer({ textContentSource: { ...textContent, lang: language }, container: children.textLayer, viewport });
         await job.textTask.render(); check();
-        alignTextLayer(children.textLayer, job.textTask.textDivs, textContent, viewport);
+        await alignTextLayer(children.textLayer, job.textTask.textDivs, textContent, viewport, textAdvances, { check });
         const wordIndex = createWordIndex(job.textTask.textDivs, textContent);
         check();
         const textLineMap = new WeakMap(), excludedText = new WeakSet();

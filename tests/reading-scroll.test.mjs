@@ -24,13 +24,13 @@ function fixture({ round = false, reduced = false } = {}) {
 
 test('reading returns to a central band with space in the direction of travel', () => {
   const viewport = { top: 10, bottom: 610, left: 0, right: 800, height: 600, width: 800 };
-  const row = { top: 510, bottom: 530, left: 50, right: 750 };
+  const row = { top: 342, bottom: 362, left: 50, right: 750 };
   const ordinary = readingScrollTarget(row, viewport, { top: 200, left: 0 });
   const crossing = readingScrollTarget(row, viewport, { top: 200, left: 0 }, { center: true });
-  assert.equal(ordinary.top, 452); assert.equal(crossing.top, 452);
-  assert.deepEqual(readingScrollTarget({ ...row, top: 300, bottom: 320 }, viewport, { top: 200, left: 0 }), { top: 200, left: 0 });
+  assert.equal(ordinary.top, 284); assert.equal(crossing.top, 284);
+  assert.deepEqual(readingScrollTarget({ ...row, top: 330, bottom: 350 }, viewport, { top: 200, left: 0 }), { top: 200, left: 0 });
   const up = readingScrollTarget({ ...row, top: 70, bottom: 90 }, viewport, { top: 200, left: 0 });
-  assert.equal(up.top, -60);
+  assert.equal(up.top, -24);
 });
 
 test('successive rows travel naturally within the central band instead of scrolling each line', () => {
@@ -42,17 +42,17 @@ test('successive rows travel naturally within the central band instead of scroll
       const row={top:viewport.top+documentMiddle-top-10,bottom:viewport.top+documentMiddle-top+10,left:50,right:750};
       const destination=readingScrollTarget(row,viewport,{top,left:0});
       const ratio=(documentMiddle-destination.top)/viewport.height;
-      assert.ok(ratio>=.34-1e-9&&ratio<=.64+1e-9);
+      assert.ok(ratio>=.36-1e-9&&ratio<=.56+1e-9);
       if(Math.abs(destination.top-top)<.01) stationary++;
       else{
         moves++;
         assert.ok(direction*(destination.top-top)>0);
-        assert.ok(Math.abs(ratio-(direction>0?.43:.55))<1e-9);
+        assert.ok(Math.abs(ratio-(direction>0?.43:.49))<1e-9);
       }
       top=destination.top;
     }
     assert.ok(stationary>=45,'most row changes leave the page still');
-    assert.ok(moves>=4&&moves<=9,'periodic returns supply a fresh stationary reading interval');
+    assert.ok(moves>=8&&moves<=13,'periodic returns supply a fresh stationary reading interval');
   }
 });
 
@@ -82,7 +82,7 @@ test('changing zoom or viewport origin keeps the same proportional reading place
 
 test('column jumps reserve space for reading order rather than the spatial scroll direction', () => {
   const viewport={top:40,bottom:840,left:0,right:800,height:800,width:800};
-  for(const [middle,direction,expected] of [[-150,1,.43],[950,-1,.55]]){
+  for(const [middle,direction,expected] of [[-150,1,.43],[950,-1,.49]]){
     const row={top:viewport.top+middle-10,bottom:viewport.top+middle+10,left:50,right:750};
     const target=readingScrollTarget(row,viewport,{top:2000,left:0},{direction});
     assert.ok(Math.abs((middle+2000-target.top)/800-expected)<1e-9);

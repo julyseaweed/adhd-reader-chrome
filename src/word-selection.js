@@ -5,15 +5,29 @@ export function createWordIndex(textDivs, content) {
   let index = 0;
   for (const item of content.items) {
     if (typeof item.str !== 'string') continue;
-    const div = textDivs[index++], node = div?.firstChild;
-    if (!node || node.nodeType !== 3 || !item.str) continue;
+    const div = textDivs[index++], nodes = [];
+    const visit = node => {
+      if (node.nodeType === 3) nodes.push(node);
+      else for (const child of node.childNodes || []) visit(child);
+    };
+    // The aligned text layer can contain several Unicode glyph nodes in one
+    // original drawing run. Keep word boundaries in that run's logical text.
+    if (div?.childNodes) for (const child of div.childNodes) visit(child);
+    else if (div?.firstChild) visit(div.firstChild);
+    if (!nodes.length || !item.str) continue;
+    let length = 0;
+    const parts = nodes.map(node => {
+      const part = { node, start: length, end: length + node.textContent.length };
+      byNode.set(node, { run: runs.length, offset: length }); length = part.end;
+      return part;
+    });
     const [a, b, c, d, x, y] = item.transform;
     const vertical = Boolean(content.styles[item.fontName]?.vertical);
     const angle = Math.atan2(b, a) + (vertical ? Math.PI / 2 : 0);
-    const run = { node, text: node.textContent, x, y, angle,
+    const run = { node: nodes[0], parts, text: nodes.map(node => node.textContent).join(''), x, y, angle,
       width: Math.abs(vertical ? item.height : item.width),
       em: Math.hypot(c, d), dir: item.dir, hasEOL: item.hasEOL };
-    byNode.set(node, runs.length); runs.push(run);
+    runs.push(run);
   }
   return { runs, byNode };
 }
@@ -34,15 +48,16 @@ export function adjacentWordRuns(left, right) {
 
 /** Return native range endpoints for one Unicode word, including split runs. */
 export function wordEndpoints(index, node, offset) {
-  const at = index?.byNode.get(node);
-  if (at === undefined) return null;
+  const located = index?.byNode.get(node);
+  if (located === undefined) return null;
+  const at = located.run;
   const { runs } = index;
   let first = at, last = at;
   while (first > 0 && adjacentWordRuns(runs[first - 1], runs[first])) first--;
   while (last + 1 < runs.length && adjacentWordRuns(runs[last], runs[last + 1])) last++;
   const parts = runs.slice(first, last + 1);
   const text = parts.map(run => run.text).join('');
-  const position = runs.slice(first, at).reduce((sum, run) => sum + run.text.length, 0) + offset;
+  const position = runs.slice(first, at).reduce((sum, run) => sum + run.text.length, 0) + located.offset + offset;
   const segments = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text)];
   // A caret may land just after the final glyph. Prefer its word over the
   // following whitespace, without absorbing punctuation or a neighbouring word.
@@ -51,10 +66,13 @@ export function wordEndpoints(index, node, offset) {
   if (!word) return null;
   const boundary = (position, end) => {
     for (const run of parts) {
-      if (position < run.text.length || end && position === run.text.length) return { node: run.node, offset: position };
+      if (position < run.text.length || end && position === run.text.length) {
+        const part = run.parts.find(part => position < part.end || end && position === part.end) || run.parts.at(-1);
+        return { node: part.node, offset: position - part.start };
+      }
       position -= run.text.length;
     }
-    const run = parts.at(-1); return { node: run.node, offset: run.text.length };
+    const part = parts.at(-1).parts.at(-1); return { node: part.node, offset: part.end-part.start };
   };
   return { start: boundary(word.index, false), end: boundary(word.index + word.segment.length, true) };
 }

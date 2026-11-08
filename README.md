@@ -20,7 +20,7 @@ The ZIP is an unpacked-extension package, not a Chrome Web Store installation. T
 ### Read and annotate
 
 - Open a local PDF with the file picker or drag it into the reader. The home screen lists the five most recently opened PDFs.
-- Click a text line to place the guide. Up moves to the previous reading unit; Down or Enter moves to the next one, across columns and pages. The guide stays on one reading unit and gently recenters when needed.
+- Click a text line to place the guide. Up moves to the previous reading unit; Down or Enter moves to the next one, across columns and pages. The guide gently recenters before reading drifts toward the bottom, leaving several lines stationary between movements.
 - Wheel, touch and scrollbar movement browse the document without changing the locked reading position. The next reading key resumes from that position. Explicit page navigation starts at that page; clicking text sets a new position.
 - Figure and table interiors are skipped during line navigation, while captions and notes remain readable. Their text stays available for selection and annotation. Fractions, roots, scripts and other formula parts are grouped into reading units.
 - Drag or double-click to select text. Use the floating toolbar or the highlight, underline and comment tools. The color control appears only in highlight mode and cycles through pale yellow, blue and gray. Underlines always export as black PDF underlines.
@@ -49,7 +49,7 @@ Typing in a comment field keeps normal text-editing behavior.
 
 ### Storage and network privacy
 
-PDFs, drafts and reading positions are stored locally in the current browser's IndexedDB. Local reading and PDF export need no account or server. The app has no telemetry and does not upload PDFs to a translation service. Save annotated PDFs for a durable copy: uninstalling the extension or clearing its browser data can remove local drafts. The extension, a separately hosted web reader and Zotero have separate storage; exchange work through exported PDFs.
+PDFs, drafts and reading positions are stored locally in the current browser. PDFs stay in IndexedDB; a small metadata recovery journal preserves recent edits while database writes finish. Local reading and PDF export need no account or server. The app has no telemetry and does not upload PDFs to a translation service. Save annotated PDFs for a durable copy: uninstalling the extension or clearing its browser data can remove local drafts. The extension, a separately hosted web reader and Zotero have separate storage; exchange work through exported PDFs.
 
 The offline English–Chinese dictionary is included with the extension. Language detection uses the selection and nearby document text locally. If an online translation is needed, a user-triggered translation sends **only the selected text (up to 500 UTF-8 bytes) and detected source-language code** to [MyMemory](https://mymemory.translated.net/doc/spec.php). Nearby context and the PDF are not sent. The provider controls availability and quotas and receives normal network-request metadata. Failed or unchanged responses are not cached as successful translations.
 
@@ -108,7 +108,7 @@ ADHD Reader 是一个本地 PDF 阅读器，提供持久的单行引导、连续
 ### 阅读与标注
 
 - 用文件选择器打开 PDF，或直接拖入。首页显示最近打开的五份 PDF。
-- 点击文字行定位；上键读上一单元，下键或 Enter 读下一单元，可跨栏和跨页。引导固定为一个阅读单元，需要时柔和回移。
+- 点击文字行定位；上键读上一单元，下键或 Enter 读下一单元，可跨栏和跨页。阅读位置偏低前就会柔和回中，两次移动之间仍有几行保持静止。
 - 滚轮、触摸和滚动条只浏览页面，不改变锁定的阅读位置。再次按阅读键会从原位置继续。主动翻页从该页开始，点击文字会重新定位。
 - 逐行阅读跳过图片和表格内部，保留图注、表题和表注；图表内文字仍可选择和标注。分式、根号、上下标等公式部分会组合为完整阅读单元。
 - 拖选或双击文字后使用浮动工具栏，也可先选高亮、下划线或评论工具。颜色控件仅在高亮模式显示，可切换淡黄、淡蓝、淡灰；下划线始终按黑色 PDF 下划线导出。
@@ -137,7 +137,7 @@ ADHD Reader 是一个本地 PDF 阅读器，提供持久的单行引导、连续
 
 ### 本地存储与网络隐私
 
-PDF、草稿和阅读位置保存在当前浏览器的 IndexedDB。本地阅读和 PDF 导出无需账号或服务器，应用没有遥测，也不会把 PDF 上传到翻译服务。请保存带标注的 PDF 留存：移除扩展或清理浏览器数据可能删除本地草稿。扩展、单独部署的网页阅读器与 Zotero 使用各自的存储，可通过导出的 PDF 交换标注。
+PDF、草稿和阅读位置保存在当前浏览器本地。PDF 存于 IndexedDB，小份恢复记录保留数据库写入完成前的最新编辑。本地阅读和 PDF 导出无需账号或服务器，应用没有遥测，也不会把 PDF 上传到翻译服务。请保存带标注的 PDF 留存：移除扩展或清理浏览器数据可能删除本地草稿。扩展、单独部署的网页阅读器与 Zotero 使用各自的存储，可通过导出的 PDF 交换标注。
 
 扩展包含离线英汉词典。原文语言由选区及附近正文在本机识别。需要在线翻译时，用户主动触发的请求**只把所选文字（最多 500 个 UTF-8 字节）及检测到的原文语言代码**发送给 [MyMemory](https://mymemory.translated.net/doc/spec.php)，不发送附近正文或 PDF。服务方管理可用性和额度，并接收正常网络请求元数据。失败或原文回显不会作为成功译文缓存。
 

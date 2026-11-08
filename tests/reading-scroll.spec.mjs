@@ -31,7 +31,7 @@ async function open(page){
  await expect(page.locator('#text-layer span')).toHaveCount(34);
  await settled(page);
 }
-async function atBand(page,row=20,ratio=.63){
+async function atBand(page,row=20,ratio=.55){
  const target=page.locator('.pdf-page[data-page-index="0"] .textLayer span').filter({hasText:`Chapter 1 row ${String(row).padStart(2,'0')}:`});
  await target.evaluate((node,ratio)=>{const area=document.getElementById('scroll-area'),view=area.getBoundingClientRect(),r=node.getBoundingClientRect();area.scrollTop+=(r.top+r.bottom)/2-view.top-area.clientHeight*ratio},ratio);
  await settled(page);
@@ -56,9 +56,22 @@ async function trace(page,info,name){
  return samples;
 }
 async function focusRatio(page){return page.evaluate(()=>{const area=document.getElementById('scroll-area'),a=area.getBoundingClientRect(),r=document.getElementById('line-outline').getBoundingClientRect();return ((r.top+r.bottom)/2-a.top-area.clientTop)/area.clientHeight})}
+async function savedAnchor(page){return page.evaluate(()=>new Promise((resolve,reject)=>{
+ const request=indexedDB.open('linea',2);request.onerror=()=>reject(request.error);request.onsuccess=()=>{
+  const db=request.result,tx=db.transaction('documents'),get=tx.objectStore('documents').getAll();
+  get.onsuccess=()=>resolve(get.result.find(record=>record.name==='reading-motion.pdf')?.lineAnchor);get.onerror=()=>reject(get.error);tx.oncomplete=()=>db.close();
+ };
+}))}
+async function expectAnchor(page,chapter,row){await expect.poll(()=>savedAnchor(page)).toMatchObject({pageIndex:chapter-1,text:expect.stringContaining(`Chapter ${chapter} row ${String(row).padStart(2,'0')}:`)})}
 
 test('crossing the lower comfort bound smoothly returns reading to the middle',async({page},info)=>{
  await open(page);const before=await atBand(page);
+ const nextRatio=await page.locator('#text-layer span').filter({hasText:'Chapter 1 row 21:'}).evaluate(node=>{
+  const area=document.getElementById('scroll-area'),view=area.getBoundingClientRect(),box=node.getBoundingClientRect();
+  return ((box.top+box.bottom)/2-view.top-area.clientTop)/area.clientHeight;
+ });
+ expect(nextRatio,'the next line crosses the new bound').toBeGreaterThan(.56);
+ expect(nextRatio,'this step must trigger before the old 64% bound').toBeLessThan(.64);
  await startTrace(page);await page.keyboard.press('ArrowDown');
  await expect(page.locator('#line-position')).toHaveText(/^21 \/ 34/);
  const samples=await trace(page,info,'bottom-line-motion'),final=samples.at(-1).top;
@@ -81,8 +94,8 @@ test('rapid reading keys keep every step and continue the current smooth traject
  expect(last.top).toBeGreaterThan(before+100);
  expect(samples.every((s,i)=>!i||s.top>=samples[i-1].top-1)).toBeTruthy();
  expect(new Set(samples.map(s=>s.top)).size).toBeGreaterThan(8);
- expect(await focusRatio(page)).toBeGreaterThanOrEqual(.33);
- expect(await focusRatio(page)).toBeLessThanOrEqual(.65);
+ expect(await focusRatio(page)).toBeGreaterThanOrEqual(.35);
+ expect(await focusRatio(page)).toBeLessThanOrEqual(.57);
  await expect(page.locator('#page-number')).toHaveValue('1');
 });
 
@@ -97,25 +110,29 @@ test('a manual wheel cancels the animation without a later return to its old des
  expect(manual).toBeLessThan(before);
  expect(samples.at(-1).top).toBeCloseTo(manual,0);
  expect(samples.slice(-10).every(sample=>Math.abs(sample.top-manual)<1)).toBeTruthy();
+ await expect(page.locator('#line-position')).toHaveText(/^21 \/ 34/);await expectAnchor(page,1,21);
+ await page.keyboard.press('ArrowDown');await settled(page);
+ await expect(page.locator('#line-position')).toHaveText(/^22 \/ 34/);await expectAnchor(page,1,22);
+ expect(await focusRatio(page)).toBeCloseTo(.43,2);
 });
 
 test('manual scroll invalidates a pending cross-page reading render and queued keys',async({page},info)=>{
  await open(page);await atBand(page,34);
  await startTrace(page,900);
  const during=await page.evaluate(()=>new Promise(resolve=>{
-  const area=document.getElementById('scroll-area'),before=area.scrollTop;
-  for(let i=0;i<4;i++)area.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',code:'ArrowDown',bubbles:true,cancelable:true}));
+  const area=document.getElementById('scroll-area'),before=area.scrollTop,queued=[];
+  for(let i=0;i<4;i++)queued.push(!area.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',code:'ArrowDown',bubbles:true,cancelable:true})));
   queueMicrotask(()=>{
-   const pending=getComputedStyle(document.getElementById('document-pages')).pointerEvents==='none';
    area.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-120}));area.scrollTop=before-120;
-   resolve({pending,manual:area.scrollTop});
+   resolve({queued,manual:area.scrollTop});
   });
  }));
- expect(during.pending,'wheel interrupts an actual asynchronous page render').toBeTruthy();
+ expect(during.queued,'all reading commands reached the queue before manual takeover').toEqual([true,true,true,true]);
  const samples=await trace(page,info,'pending-render-cancellation');
  expect(samples.at(-1).top).toBeCloseTo(during.manual,0);
  await expect(page.locator('#page-number')).toHaveValue('1');
  await expect(page.locator('#document-pages')).not.toHaveCSS('pointer-events','none');
+ await expect(page.locator('#line-position')).toHaveText(/^34 \/ 34/);await expectAnchor(page,1,34);
 });
 
 test('reduced motion follows immediately and an explicit page jump has no old animation tail',async({page},info)=>{
@@ -136,19 +153,27 @@ test('reduced motion follows immediately and an explicit page jump has no old an
 test('several lines stay stationary inside the comfort band and upward reading gets room above',async({page},info)=>{
  await open(page);const before=await atBand(page,20,.43);
  const stops=[];
- for(const key of ['ArrowDown','ArrowDown','ArrowDown','ArrowUp','ArrowUp','ArrowUp','ArrowUp']){
+ for(const key of ['ArrowDown','ArrowDown','ArrowUp','ArrowUp','ArrowUp']){
   await page.keyboard.press(key);await settled(page);
   stops.push({line:await page.locator('#line-position').textContent(),ratio:await focusRatio(page),top:await page.locator('#scroll-area').evaluate(area=>area.scrollTop)});
  }
  await fs.writeFile(info.outputPath('stationary-reading-band.json'),JSON.stringify(stops,null,2));
  expect(stops.every(stop=>Math.abs(stop.top-before)<1),'normal reading inside the band must not pan on every line').toBeTruthy();
+ expect(new Set(stops.map(stop=>stop.line)).size,'several distinct rows remain stationary').toBeGreaterThanOrEqual(3);
  await expect(page.locator('#line-position')).toHaveText(/^19 \/ 34/);
+ const upwardBefore=await atBand(page,19,.40);
+ const previousRatio=await page.locator('#text-layer span').filter({hasText:'Chapter 1 row 18:'}).evaluate(node=>{
+  const area=document.getElementById('scroll-area'),view=area.getBoundingClientRect(),box=node.getBoundingClientRect();
+  return ((box.top+box.bottom)/2-view.top-area.clientTop)/area.clientHeight;
+ });
+ expect(previousRatio,'the prior line crosses the new upper bound').toBeLessThan(.36);
+ expect(previousRatio,'upward following also starts before the old 34% bound').toBeGreaterThan(.34);
  await startTrace(page,900);await page.keyboard.press('ArrowUp');
  const samples=await trace(page,info,'upward-return-to-middle');
  await expect(page.locator('#line-position')).toHaveText(/^18 \/ 34/);
- expect(samples.at(-1).top).toBeLessThan(before-50);
+ expect(samples.at(-1).top).toBeLessThan(upwardBefore-50);
  expect(samples.every((sample,i)=>!i||sample.top<=samples[i-1].top+1)).toBeTruthy();
- expect(await focusRatio(page)).toBeCloseTo(.55,2);
+ expect(await focusRatio(page)).toBeCloseTo(.49,2);
  await page.screenshot({path:info.outputPath('middle-reading-after-upward.png')});
 });
 
@@ -169,6 +194,7 @@ test('clicking another visible line takes over an unfinished recentering animati
  await startTrace(page,700);const samples=await trace(page,info,'click-manual-takeover');
  expect(samples.every(sample=>Math.abs(sample.top-stopped)<1),'manual click must not resume the old scroll destination').toBeTruthy();
  await expect(page.locator('#line-position')).toHaveText(new RegExp(`^${clickedRow} / 34`));
+ await expectAnchor(page,1,clickedRow);
 });
 
 test('crossing pages in either direction returns to one middle reading anchor',async({page},info)=>{
@@ -208,6 +234,6 @@ test('a same-page column transition uses reading direction rather than screen di
  await page.screenshot({path:info.outputPath('next-column-reading-anchor.png')});
  await page.keyboard.press('ArrowUp');await settled(page);
  await expect(page.locator('#line-position')).toHaveText(/^20 \/ 40/);
- expect(await focusRatio(page),'backward reading returns to the previous column near55%, despite moving spatially downward').toBeCloseTo(.55,2);
+ expect(await focusRatio(page),'backward reading returns to the previous column near49%, despite moving spatially downward').toBeCloseTo(.49,2);
  await page.screenshot({path:info.outputPath('previous-column-reading-anchor.png')});
 });

@@ -60,3 +60,12 @@ test('right-to-left drawing runs preserve logical Unicode word order', () => {
   const { nodes, index } = fixture([{ text: 'مرح', x: 20, width: 30, dir: 'rtl' }, { text: 'با', x: 0, width: 20, dir: 'rtl' }]);
   assert.deepEqual(wordEndpoints(index, nodes[1], 1), { start: { node: nodes[0], offset: 0 }, end: { node: nodes[1], offset: 2 } });
 });
+
+test('glyph-aligned leaf nodes retain complete words and adjacent split runs', () => {
+  const texts=['s','to','chas','tic process'],nodes=texts.map(textContent=>({nodeType:3,textContent}));
+  const divs=[{childNodes:nodes.slice(0,2).map(node=>({childNodes:[node]}))},{childNodes:nodes.slice(2).map(node=>({childNodes:[node]}))}];
+  const items=[{str:'sto',width:12,x:0},{str:'chastic process',width:60,x:12}].map(item=>({...item,transform:[10,0,0,10,item.x,100],height:10,dir:'ltr',fontName:'f',hasEOL:false}));
+  const index=createWordIndex(divs,{items,styles:{f:{}}});
+  for(const node of nodes)assert.deepEqual(wordEndpoints(index,node,1),{start:{node:nodes[0],offset:0},end:{node:nodes[3],offset:3}});
+  assert.deepEqual(wordEndpoints(index,nodes[3],6),{start:{node:nodes[3],offset:4},end:{node:nodes[3],offset:11}});
+});

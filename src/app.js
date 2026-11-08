@@ -1,6 +1,6 @@
 import './style.css';
 import {loadPDF,exportAnnotatedPdf,viewportRectToPdf,pdfRectToViewport} from './pdf-engine.js';
-import {putDocument,getDocument,recentDocuments,fingerprint} from './storage.js';
+import {putDocument,getDocument,recentDocuments,fingerprint,checkpointDocument} from './storage.js';
 import {translate,cancelTranslation} from './translate.js';
 import {focusRect,readingLineAtPoint,anchoredLineIndex} from './focus-geometry.js';
 import {selectionRectsFromRange,canonicalizePdfRects,underlinePdfRects} from './selection-geometry.js';
@@ -61,7 +61,21 @@ function excludedTableStep(record,anchor,direction){
  const targets=new Set(neighbor),index=record.lines.findIndex(line=>line.items.some(item=>targets.has(item.index)));
  return index>=0?{adjacentPage:false,index}:null;
 }
-function persist(immediate=false){clearTimeout(s.persistTimer);if(!s.id)return Promise.resolve();s.draftPending=true;const revision=++s.persistRevision;updateSaveStatus();const run=()=>{const anchor=readingAnchor();const record={id:s.id,name:s.name,bytes:s.bytes,annotations:structuredClone(s.annotations),deletedAnnotations:structuredClone(s.deletedAnnotations),pageIndex:anchor?.pageIndex??0,lineIndex:anchor?.lineIndex??0,lineAnchor:anchor,savedSignature:s.savedSignature,updated:Date.now()};persistChain=persistChain.catch(()=>{}).then(()=>putDocument(record)).then(()=>{if(record.id===s.id&&revision===s.persistRevision){s.storageFailed=false;s.draftPending=false;updateSaveStatus()}}).catch(()=>{if(record.id===s.id){s.storageFailed=true;s.draftPending=false;updateSaveStatus();toast('本地存储空间不足，请保存 PDF')}});return persistChain};if(immediate)return run();s.persistTimer=setTimeout(run,350)}
+function persist(immediate=false){
+ clearTimeout(s.persistTimer);if(!s.id)return Promise.resolve();
+ s.draftPending=true;const revision=++s.persistRevision,anchor=readingAnchor();updateSaveStatus();
+ // Capture now, while this interaction still owns its document. The small
+ // recovery checkpoint survives a reload during the deferred database write.
+ let record={id:s.id,name:s.name,bytes:s.bytes,annotations:structuredClone(s.annotations),deletedAnnotations:structuredClone(s.deletedAnnotations),pageIndex:anchor?.pageIndex??0,lineIndex:anchor?.lineIndex??0,lineAnchor:anchor,savedSignature:s.savedSignature,updated:Date.now()};
+ try{record=checkpointDocument(record);s.checkpointDurable=true}catch{s.checkpointDurable=false;immediate=true}
+ const run=()=>{
+  persistChain=persistChain.catch(()=>{}).then(()=>putDocument(record)).then(()=>{
+   if(record.id===s.id&&revision===s.persistRevision){s.storageFailed=false;s.draftPending=false;updateSaveStatus()}
+  }).catch(()=>{if(record.id===s.id){s.storageFailed=true;s.draftPending=false;updateSaveStatus();toast('本地存储空间不足，请保存 PDF')}});
+  return persistChain;
+ };
+ if(immediate)return run();s.persistTimer=setTimeout(run,350);
+}
 async function showRecent(){try{const list=await recentDocuments();$('recent-list').replaceChildren();list.forEach(item=>{const btn=document.createElement('button');btn.className='recent-row';const name=document.createElement('span');name.className='recent-name';name.textContent=item.name.replace(/\.pdf$/i,'');const page=document.createElement('small');page.textContent=`第 ${(item.pageIndex||0)+1} 页`;btn.innerHTML=icon('folder');btn.append(name,page);btn.onclick=async()=>{const importId=beginOpenIntent();busy(true);try{const saved=await getDocument(item.id,true);if(importId!==openGeneration)return;if(!saved?.bytes)throw Error('原文件未找到，请重新导入');await openBytes(saved.bytes,saved.name,saved,importId)}catch(e){if(importId===openGeneration)toast(e.message)}finally{if(importId===openGeneration)busy(false)}};$('recent-list').append(btn)})}catch{}}
 showRecent();
 function closeFloating(){ $('selection-menu').hidden=true;$('translation').hidden=true;$('annotation-menu').hidden=true;s.selectedAnnotation=null;document.querySelectorAll('.annotation-selection').forEach(el=>el.remove());cancelTranslation();translationGeneration++ }
@@ -97,7 +111,7 @@ async function openBytes(input,name,stored,importId=beginOpenIntent()){
  s.canExport=next.canExportAnnotations!==false;$('save').disabled=!s.canExport;document.querySelectorAll('button[data-tool]:not([data-tool=select]),#selection-menu [data-action=highlight],#selection-menu [data-action=underline],#selection-menu [data-action=comment]').forEach(b=>b.disabled=!s.canExport);if(!s.canExport){setTool('select');toast(next.exportLimitation||'此 PDF 暂不支持写入标注')}
  s.readingAnchor={lineIndex:s.lineIndex,...(stored?.lineAnchor||{}),pageIndex:s.pageIndex};
  $('welcome').hidden=true;$('reader').hidden=false;$('save').hidden=false;$('open').hidden=false;$('doc-title').textContent=name.replace(/\.pdf$/i,'');document.title=name.replace(/\.pdf$/i,'')+' · ADHD Reader';$('page-count').textContent='/ '+next.numPages;
- const owner=beginNavigation();try{if(!await renderPage()||!ownsNavigation(owner)||importId!==openGeneration)return;const record=flow.getRecord(s.pageIndex),index=readingLineIndex(record);if(index>=0)rememberReadingLine(record,index);$('scroll-area').scrollTop=Math.max(0,pageTop(record)-parseFloat(getComputedStyle($('scroll-area')).paddingTop));updateFocus(true);$('scroll-area').focus({preventScroll:true});persist();if(!$('notes-panel').hidden)loadAllNativeAnnotations()}finally{endNavigation(owner)}
+ const owner=beginNavigation();try{if(!await renderPage()||!ownsNavigation(owner)||importId!==openGeneration)return;const record=flow.getRecord(s.pageIndex),index=readingLineIndex(record);if(index>=0)rememberReadingLine(record,index);$('scroll-area').scrollTop=Math.max(0,pageTop(record)-parseFloat(getComputedStyle($('scroll-area')).paddingTop));updateFocus(true);$('scroll-area').focus({preventScroll:true});await persist(true);if(importId!==openGeneration)return;if(!$('notes-panel').hidden)loadAllNativeAnnotations()}finally{endNavigation(owner)}
  }catch(e){if(importId===openGeneration){console.error(e);toast(e.name==='InvalidPDFException'?'这个文件不是有效的 PDF':e.message||'PDF 未能打开')}if(next&&next!==s.doc)await next.destroy()}finally{if(importId===openGeneration)busy(false)}
 }
 async function openFile(file){if(!file){focusReader();return}if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf'){toast('请选择 PDF 文件');focusReader();return}const importId=beginOpenIntent();busy(true);try{const bytes=new Uint8Array(await file.arrayBuffer());if(importId===openGeneration)await openBytes(bytes,file.name,undefined,importId)}catch(e){if(importId===openGeneration)toast(e.message||'PDF 未能打开')}finally{if(importId===openGeneration){busy(false);focusReader()}}}
@@ -130,7 +144,17 @@ const readingScroll=createReadingScroll({
  onFrame:()=>refreshVisible(),
  onFinish:completed=>{s.scrollingToLine=false;s.scrollDestination=null;if(completed)lockReadingPosition();refreshVisible()},
 });
-function interruptReadingNavigation(){
+// Explicit viewport browsing shares the reading motion engine, while keeping
+// its destination independent from the locked reading line.
+const browseScroll=createReadingScroll({
+ read:()=>({top:$('scroll-area').scrollTop,left:$('scroll-area').scrollLeft}),
+ write:(top,left)=>{const area=$('scroll-area');area.scrollLeft=left;area.scrollTop=top},
+ isValid:()=>Boolean(s.doc)&&!$('reader').hidden&&!document.hidden,
+ reducedMotion:()=>matchMedia('(prefers-reduced-motion: reduce)').matches,
+ onFrame:()=>refreshVisible(),onFinish:()=>refreshVisible(),
+});
+function interruptReadingNavigation({preserveViewportBrowse=false}={}){
+ if(!preserveViewportBrowse)cancelViewportBrowse();
  readingIntent++;readingRenderWait=null;readingScroll.cancel();s.scrollingToLine=false;s.scrollDestination=null;s.lockedScrollTop=null;
  // Only a pending reading-key render belongs to this queue. Other imports,
  // zoom renders and explicit page navigation keep their independent owners.
@@ -187,7 +211,9 @@ async function renderPageNow(scrollToLine=false){
   const scale=s.zoom||Math.min(1.35,Math.max(.35,available/widest));
   flow.setScale(scale);
   zoom.painted({width:parseFloat($('document-pages').style.width),height:parseFloat($('document-pages').style.height),scale});
-  $('document-pages').style.pointerEvents='none';
+  // A cold reading target is prepared offscreen. Visible pages must keep their
+  // input targets so manual browsing can cancel that navigation immediately.
+  $('document-pages').style.pointerEvents=readingNavigationOwner?'':'none';
   const record=await flow.ensure(s.pageIndex);if(generation!==s.renderGeneration||epoch!==documentEpoch||flow.doc!==doc||doc!==s.doc)return false;
   adoptPage(record);drawAnnotations();updateFocus(scrollToLine);lockReadingPosition();return true;
  }catch(e){if(generation===s.renderGeneration&&epoch===documentEpoch&&!['RenderingCancelledException','AbortException','AbortError'].includes(e.name)){console.error(e);toast('这一页未能显示，请重试')}return false}finally{if(generation===s.renderGeneration&&epoch===documentEpoch){s.rendering=false;$('document-pages').style.pointerEvents='';refreshVisible()}}
@@ -225,10 +251,11 @@ function updateFocus(scroll=false,{direction=0}={}){
   }
  }
 }
-function nearestLine(x,y,target){const span=target?.closest?.('span');if(span&&s.excludedText?.has(span))return -1;return readingLineAtPoint(s.layout,x,y,s.textLineMap?.get(span))}
+function nearestLine(x,y,target,record=s){const span=target?.closest?.('span');if(span&&record.excludedText?.has(span))return -1;return readingLineAtPoint(record.layout,x,y,record.textLineMap?.get(span))}
 function setLine(index,scroll=true,{direction=0}={}){clearSelection();if(index<0||!s.lines.length)return;s.lineIndex=Math.max(0,Math.min(index,s.lines.length-1));rememberReadingLine(flow.getRecord(s.pageIndex),s.lineIndex);updateFocus(scroll,{direction});persist()}
 let navigation=Promise.resolve();
 function moveLine(delta){
+ cancelViewportBrowse();
  clearTimeout(selectionClickTimer);press=null;
  const epoch=documentEpoch,intent=readingIntent;
  navigation=navigation.then(async()=>{
@@ -383,7 +410,7 @@ $('scroll-area').addEventListener('pointerdown',e=>{
   if(e.pointerType!=='touch'){e.preventDefault();$('scroll-area').setPointerCapture(e.pointerId);erasePoint(e.clientX,e.clientY)}
   return;
  }
- press={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pageIndex:record.index};
+ press={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pageIndex:record.index,record};
 });
 window.addEventListener('pointermove',e=>{
  if(press&&e.pointerId===press.id&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>7)press.moved=true;
@@ -398,9 +425,13 @@ window.addEventListener('pointerup',e=>{
  selectionClickTimer=setTimeout(()=>{
   if(epoch!==documentEpoch||intent!==readingIntent||s.rendering||zoom.active)return;
   if(captureSelection()){if(['highlight','underline','comment'].includes(s.tool))performAction(s.tool);else showSelectionMenu();return}
-  const record=flow.getRecord(p.pageIndex);if(!record?.ready||p.moved||!record.element.contains(e.target))return;
-  if(s.tool==='select'){const a=annotationAt(record,e.clientX,e.clientY);if(a){showAnnotationMenu(a,e.clientX,e.clientY);return}}
-  const b=record.element.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top,index=nearestLine(x,y,e.target),rect=index>=0&&focusRect(s.lines,index,1,s.viewport);if(rect&&x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height)setLine(index,false);focusReader();
+  const record=flow.getRecord(p.pageIndex);if(record!==p.record||!record?.ready||p.moved||!record.element.contains(e.target))return;
+  if(s.tool==='select'){const a=annotationAt(record,e.clientX,e.clientY);if(a){activatePage(record);showAnnotationMenu(a,e.clientX,e.clientY);return}}
+  // Visibility updates can activate a neighboring page before this deferred
+  // click runs. Resolve geometry in the event's page, then commit that page
+  // and its line together; never combine one page's coordinates with another.
+  const b=record.element.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top,index=nearestLine(x,y,e.target,record),rect=index>=0&&focusRect(record.lines,index,1,record.viewport);
+  if(rect&&x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height){activatePage(record);setLine(index,false)}focusReader();
  },0);
 });
 window.addEventListener('pointercancel',()=>{press=null;erasePress=null});
@@ -479,12 +510,27 @@ function renderNotes(){
 function undo(redo=false){if(!s.canExport)return;const from=redo?s.redo:s.undo,to=redo?s.undo:s.redo;if(!from.length)return;erasePress=null;to.push(annotationState());Object.assign(s,from.pop());refreshAnnotationState()}
 
 async function savePDF(){if(!s.doc||!s.canExport)return;const source={id:s.id,name:s.name,bytes:s.bytes,epoch:documentEpoch,intent:openGeneration};busy(true,'正在保存');try{const snapshot=annotationState();const bytes=await exportAnnotatedPdf(source.bytes,snapshot.annotations,snapshot.deletedAnnotations);const blob=new Blob([bytes],{type:'application/pdf'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=source.name.replace(/\.pdf$/i,'')+'-annotated.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);if(documentEpoch===source.epoch){s.savedSignature=stateSignature(snapshot);await persist(true);updateSaveStatus()}}catch(e){console.error(e);toast(e.message||'保存失败，请重试')}finally{if(openGeneration===source.intent)busy(false)}}$('save').onclick=savePDF;
-document.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||!document.getElementById('busy').hidden)return;const typing=e.target.closest('input,textarea,select,[contenteditable=true]');const dialog=document.querySelector('dialog[open]');if(e.key==='Escape'){closeFloating();$('settings').hidden=true;if(!dialog)clearSelection();return}if(typing||dialog||(e.target.closest('button')&&e.key==='Enter'))return;const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();$('file-input').click();return}if(!s.doc||$('reader').hidden)return;if(e.target.closest('#scroll-area')&&['PageDown','PageUp','Home','End',' '].includes(e.key)){interruptReadingNavigation();return}if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();savePDF();return}if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();undo(e.shiftKey);return}if(mod&&e.key.toLowerCase()==='y'){e.preventDefault();undo(true);return}if(mod||e.altKey||e.shiftKey)return;if(['Delete','Backspace'].includes(e.key)&&s.selectedAnnotation){e.preventDefault();deleteAnnotations([s.selectedAnnotation]);return}if(e.key==='Enter'&&captureSelection()){e.preventDefault();if(!e.repeat)showTranslation();return}if(['ArrowUp','ArrowDown','Enter'].includes(e.key)){e.preventDefault();moveLine(e.key==='ArrowUp'?-1:1);return}const key=e.key.toLowerCase();if(key==='f')$('focus').click();else if(key==='v')setTool('select');else if(key==='h')s.selection?performAction('highlight'):setTool('highlight');else if(key==='u')s.selection?performAction('underline'):setTool('underline');else if(key==='n')s.selection?performAction('comment'):setTool('comment');else if(key==='e')setTool('erase')});
+function cancelViewportBrowse(){browseScroll.cancel()}
+function browseViewportKey(event){
+ if(!event.target.closest('#scroll-area')||!['PageDown','PageUp','Home','End',' '].includes(event.key))return false;
+ const own=!(event.ctrlKey||event.metaKey||event.altKey||event.shiftKey&&event.key!==' '),previousTarget=browseScroll.active?browseScroll.target.top:null;
+ interruptReadingNavigation({preserveViewportBrowse:own});
+ if(!own)return true;
+ event.preventDefault();
+ const area=$('scroll-area');
+ // Address the PDF viewport explicitly: its native input target can change
+ // while a cold page is being prepared, even though the visible page is ready.
+ const requested=event.key==='Home'?0:event.key==='End'?area.scrollHeight-area.clientHeight:(previousTarget??area.scrollTop)+area.clientHeight*.875*(event.key==='PageUp'||event.key===' '&&event.shiftKey?-1:1);
+ const top=Math.max(0,Math.min(area.scrollHeight-area.clientHeight,requested));
+ browseScroll.retarget(top,area.scrollLeft);
+ return true;
+}
+document.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||!document.getElementById('busy').hidden)return;const typing=e.target.closest('input,textarea,select,[contenteditable=true]');const dialog=document.querySelector('dialog[open]');if(e.key==='Escape'){closeFloating();$('settings').hidden=true;if(!dialog)clearSelection();return}if(typing||dialog||(e.target.closest('button')&&e.key==='Enter'))return;const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();$('file-input').click();return}if(!s.doc||$('reader').hidden)return;if(browseViewportKey(e))return;if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();savePDF();return}if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();undo(e.shiftKey);return}if(mod&&e.key.toLowerCase()==='y'){e.preventDefault();undo(true);return}if(mod||e.altKey||e.shiftKey)return;if(['Delete','Backspace'].includes(e.key)&&s.selectedAnnotation){e.preventDefault();deleteAnnotations([s.selectedAnnotation]);return}if(e.key==='Enter'&&captureSelection()){e.preventDefault();if(!e.repeat)showTranslation();return}if(['ArrowUp','ArrowDown','Enter'].includes(e.key)){e.preventDefault();moveLine(e.key==='ArrowUp'?-1:1);return}const key=e.key.toLowerCase();if(key==='f')$('focus').click();else if(key==='v')setTool('select');else if(key==='h')s.selection?performAction('highlight'):setTool('highlight');else if(key==='u')s.selection?performAction('underline'):setTool('underline');else if(key==='n')s.selection?performAction('comment'):setTool('comment');else if(key==='e')setTool('erase')});
 document.addEventListener('pointerdown',e=>{if(!$('settings').contains(e.target)&&!$('settings-toggle').contains(e.target))$('settings').hidden=true;if(!e.target.closest('.pdf-page,.popover,dialog,[data-tool],#color')&&(!$('selection-menu').hidden||!$('annotation-menu').hidden))clearSelection()});$('scroll-area').addEventListener('scroll',()=>{erasePress=null;const area=$('scroll-area');if(readingScroll.active?!readingScroll.isExpectedPosition({top:area.scrollTop,left:area.scrollLeft}):readingViewportMoved()||waitingReadingViewportMoved())interruptReadingNavigation();closeFloating();refreshVisible()},{passive:true});
 // Pointer toolbar actions finish in the reader. Tab/Enter activation keeps its
 // native button focus so keyboard users can continue through the controls.
 document.addEventListener('click',e=>{if(e.detail>0&&!$('reader').hidden&&e.target.closest('button')?.matches('[data-tool],#focus,#theme,#color,#zoom-out,#zoom-in,#zoom-fit,#prev-page,#next-page,#notes-toggle,#notes-close,#settings-close,#save'))focusReader()});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)persist(true)});window.addEventListener('pagehide',()=>persist(true));window.addEventListener('beforeunload',e=>{if((s.storageFailed||s.draftPending)&&signature()!==s.savedSignature){e.preventDefault();e.returnValue=''}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persist(true)});window.addEventListener('pagehide',()=>persist(true));window.addEventListener('beforeunload',e=>{if((s.storageFailed||s.draftPending&&!s.checkpointDurable)&&signature()!==s.savedSignature){e.preventDefault();e.returnValue=''}});
 
 async function openRemote(){const url=new URLSearchParams(location.search).get('url');if(!url)return;const importId=beginOpenIntent();let bridge;try{if(globalThis.chrome?.runtime?.id){bridge=await import(/* @vite-ignore */chrome.runtime.getURL('bridge.js'));if(importId!==openGeneration)return;const result=await bridge.fetchPDF(url);if(importId===openGeneration)await openBytes(result.bytes,result.name,undefined,importId)}else{const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol))throw Error('请导入本地 PDF');const response=await fetch(parsed);if(importId!==openGeneration)return;if(!response.ok)throw Error('链接无法读取，请下载 PDF 后导入');const bytes=new Uint8Array(await response.arrayBuffer());if(importId===openGeneration)await openBytes(bytes,decodeURIComponent(parsed.pathname.split('/').pop())||'document.pdf',undefined,importId)}}catch(e){if(importId!==openGeneration)return;if(e.code==='HOST_PERMISSION_REQUIRED'&&bridge){const button=document.createElement('button');button.className='primary permission-button';button.textContent='允许打开此网站的 PDF';button.onclick=async()=>{const allowed=await bridge.requestAccess(url);if(allowed){button.remove();openRemote()}};$('recent-list').prepend(button)}else toast(e.message||'链接无法读取，请下载 PDF 后导入')}}openRemote();
 

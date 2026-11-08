@@ -7,14 +7,22 @@ test.use({browserName:'chromium',headless:true,viewport:{width:1180,height:820},
 test.setTimeout(90000);
 const slot=(page,index)=>page.locator(`.pdf-page[data-page-index="${index}"]`);
 let bytes;
-async function fixture(){
- if(bytes)return bytes;
- const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica);
+async function fixture(splitFirstPage=false){
+ if(bytes&&!splitFirstPage)return bytes;
+ const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica),alternate=splitFirstPage?await pdf.embedFont(StandardFonts.HelveticaOblique):font;
  for(let index=0;index<12;index++){
   const sheet=pdf.addPage([600,800]);if(index===3)continue;
-  for(let row=1;row<=30;row++)sheet.drawText(`Anchor page ${index+1} row ${String(row).padStart(2,'0')}: a stable place to continue reading.`,{x:60,y:755-(row-1)*24,size:11,font});
+  for(let row=1;row<=30;row++){
+   const prefix=`Anchor page ${index+1} row ${String(row).padStart(2,'0')}:`,tail=' a stable place to continue reading.',y=755-(row-1)*24;
+   if(splitFirstPage&&index===0){
+    // Independently drawn font runs make a realistic expensive text layer.
+    // The visible text and its 30 reading rows remain the same.
+    sheet.drawText(prefix,{x:60,y,size:11,font});let x=60+font.widthOfTextAtSize(prefix,11);
+    for(let i=0;i<tail.length;i++){const face=i%2?alternate:font;sheet.drawText(tail[i],{x,y,size:11,font:face});x+=face.widthOfTextAtSize(tail[i],11)}
+   }else sheet.drawText(prefix+tail,{x:60,y,size:11,font});
+  }
  }
- return bytes=Buffer.from(await pdf.save());
+ const result=Buffer.from(await pdf.save());if(!splitFirstPage)bytes=result;return result;
 }
 async function settle(page){await page.locator('#scroll-area').evaluate(area=>new Promise((resolve,reject)=>{
  let previous=area.scrollTop,stable=0;const until=performance.now()+4000;
@@ -24,7 +32,7 @@ async function ready(page,index){
  await expect(page.locator('#busy')).toBeHidden();await expect(slot(page,index)).toHaveAttribute('data-ready','true');
  await expect(page.locator('#document-pages')).not.toHaveCSS('pointer-events','none');await settle(page);
 }
-async function open(page){await page.goto(url);await page.locator('#file-input').setInputFiles({name:'anchor-fixture.pdf',mimeType:'application/pdf',buffer:await fixture()});await ready(page,0)}
+async function open(page,splitFirstPage=false){await page.goto(url);await page.locator('#file-input').setInputFiles({name:'anchor-fixture.pdf',mimeType:'application/pdf',buffer:await fixture(splitFirstPage)});await ready(page,0)}
 async function clickLine(page,index,row){
  const text=slot(page,index).locator('.textLayer span').filter({hasText:`Anchor page ${index+1} row ${String(row).padStart(2,'0')}:`});
  await text.scrollIntoViewIfNeeded();await settle(page);const b=await text.boundingBox();await page.mouse.click(b.x+25,b.y+b.height/2);
@@ -138,7 +146,7 @@ test('a scroll without a new pointer or wheel event cancels an unpainted keyboar
   const area=document.querySelector('#scroll-area'),before=area.scrollTop;
   area.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
   queueMicrotask(()=>{
-   const pending=getComputedStyle(document.querySelector('#document-pages')).pointerEvents==='none';
+   const pending=document.querySelector('.pdf-page[data-page-index="0"]').dataset.ready==='false';
    area.scrollTop=before+180;
    const manual=area.scrollTop,start=performance.now(),samples=[];
    const frame=()=>{samples.push({ms:performance.now()-start,top:area.scrollTop,page:document.querySelector('#page-number').value});if(performance.now()-start>1100)resolve({pending,before,manual,samples});else requestAnimationFrame(frame)};requestAnimationFrame(frame);
@@ -154,7 +162,7 @@ test('a scroll without a new pointer or wheel event cancels an unpainted keyboar
 test('native PageDown takes over a pending cold-page reading resume',async({page},info)=>{
  await open(page);await clickLine(page,0,12);await expectSource(page,0,12);const original=await anchorGeometry(page);await browse(page,8);
  await expect.poll(()=>slot(page,0).locator('.pdf-canvas').evaluate(canvas=>canvas.width)).toBe(0);
- await page.evaluate(()=>{window.__pageDownProbe=[];document.addEventListener('keydown',event=>{if(event.key==='PageDown')window.__pageDownProbe.push({pending:getComputedStyle(document.querySelector('#document-pages')).pointerEvents==='none',before:document.querySelector('#scroll-area').scrollTop,trusted:event.isTrusted})},true)});
+ await page.evaluate(()=>{window.__pageDownProbe=[];document.addEventListener('keydown',event=>{if(event.key==='PageDown')window.__pageDownProbe.push({pending:document.querySelector('.pdf-page[data-page-index="0"]').dataset.ready==='false',before:document.querySelector('#scroll-area').scrollTop,trusted:event.isTrusted})},true)});
  const session=await page.context().newCDPSession(page);await session.send('Emulation.setCPUThrottlingRate',{rate:4});
  await page.keyboard.down('Enter');await page.keyboard.press('PageDown');await page.keyboard.up('Enter');await settle(page);
  await session.send('Emulation.setCPUThrottlingRate',{rate:1});await session.detach();
@@ -194,4 +202,89 @@ test('an auxiliary scroll also cancels a reading key queued behind an existing z
   if(manual){expect(probe.samples.at(-1).top).toBeCloseTo(probe.expected,0);await sameAnchor(page,original);await expectSource(page,0,12);await expect(page.locator('#page-number')).toHaveValue('9')}
   else {await expectSource(page,0,13);await expect(page.locator('#page-number')).toHaveValue('1')}
  }
+});
+
+
+for(const gesture of ['page-key','text-click'])test(`${gesture==='page-key'?'native page keys':'a text click'} take over while a cold text layer is suspended for preparation`,async({page},info)=>{
+ await open(page,true);await clickLine(page,0,12);await expectSource(page,0,12);
+ const original=await anchorGeometry(page);await browse(page,8);
+ await expect.poll(()=>slot(page,0).locator('.pdf-canvas').evaluate(canvas=>canvas.width)).toBe(0);
+ await page.evaluate(()=>{
+  const original=scheduler.yield.bind(scheduler);
+  window.__measurementPause={restore:()=>{scheduler.yield=original;}};
+  scheduler.yield=()=>{
+   const host=[...document.body.children].find(node=>node.getAttribute('aria-hidden')==='true');
+   if(!__measurementPause.host&&host?.querySelector('.textLayer')&&document.querySelector('.pdf-page[data-page-index="0"]').dataset.ready==='false'){
+    __measurementPause.host=host;
+    return new Promise(resolve=>{__measurementPause.release=resolve;});
+   }
+   return original();
+  };
+ });
+ const session=await page.context().newCDPSession(page);
+ await session.send('Emulation.setCPUThrottlingRate',{rate:4});
+ try{
+  await page.keyboard.down('Enter');
+  await expect.poll(()=>page.evaluate(()=>Boolean(window.__measurementPause.release))).toBe(true);
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const before=await page.locator('#scroll-area').evaluate(node=>node.scrollTop);
+  expect(await page.evaluate(()=>__measurementPause.host.isConnected)).toBe(true);
+  if(gesture==='page-key'){
+   await page.keyboard.press('PageDown');await page.keyboard.up('Enter');
+   await expect.poll(()=>page.locator('#scroll-area').evaluate(node=>node.scrollTop)).toBeGreaterThan(before+100);
+   await settle(page);const below=await page.locator('#scroll-area').evaluate(node=>node.scrollTop);
+   await page.keyboard.press('PageUp');
+   await expect.poll(()=>page.locator('#scroll-area').evaluate(node=>node.scrollTop)).toBeLessThan(below-100);
+   await settle(page);await sameAnchor(page,original);await expectSource(page,0,12);
+  }else{
+   const text=slot(page,8).locator('.textLayer span').filter({hasText:'Anchor page 9 row 08:'});
+   const b=await text.boundingBox();await page.mouse.click(b.x+25,b.y+b.height/2);
+   await page.keyboard.up('Enter');await expectSource(page,8,8);
+  }
+ }finally{
+  await page.keyboard.up('Enter');
+  await page.evaluate(()=>{__measurementPause.restore();__measurementPause.release?.();});
+  await session.send('Emulation.setCPUThrottlingRate',{rate:1});await session.detach();
+ }
+ await expect.poll(()=>page.evaluate(()=>__measurementPause.host?.isConnected)).toBe(false);
+ await record(page,info,'native-page-keys-during-measurement');
+});
+
+
+test('viewport browse keys preserve the reading anchor and yield to the wheel',async({page},info)=>{
+ await open(page);await clickLine(page,0,12);await expectSource(page,0,12);
+ const original=await anchorGeometry(page),area=page.locator('#scroll-area');
+ const start=await area.evaluate(node=>node.scrollTop);
+ await page.keyboard.press('PageDown');await expect.poll(()=>area.evaluate(node=>node.scrollTop)).toBeGreaterThan(start+100);await settle(page);
+ const first=await area.evaluate(node=>node.scrollTop);
+ for(let i=0;i<3;i++)await page.keyboard.press('PageDown');
+ await expect.poll(()=>area.evaluate(node=>node.scrollTop)).toBeGreaterThan(first+100);await settle(page);
+ const beforeWheel=await area.evaluate(node=>node.scrollTop),height=await area.evaluate(node=>node.clientHeight);
+ const box=await area.boundingBox();await page.mouse.move(box.x+box.width*.8,box.y+box.height*.5);
+ await page.keyboard.press('PageDown');await expect.poll(()=>area.evaluate(node=>node.scrollTop),{intervals:[10]}).toBeGreaterThan(beforeWheel+20);
+ await area.evaluate(node=>node.addEventListener('wheel',()=>{window.__browseWheelEntry=node.scrollTop;},{capture:true,once:true}));
+ await page.mouse.wheel(0,-280);await settle(page);
+ expect(await area.evaluate(node=>node.scrollTop)).toBeLessThan(await page.evaluate(()=>__browseWheelEntry)-80);
+ expect(await area.evaluate(node=>node.scrollTop)).toBeLessThan(beforeWheel+height*.875-100);
+ const drift=await area.evaluate(node=>new Promise(resolve=>{const start=node.scrollTop,until=performance.now()+250;let maximum=0;const frame=()=>{maximum=Math.max(maximum,Math.abs(node.scrollTop-start));if(performance.now()>=until)resolve(maximum);else requestAnimationFrame(frame)};requestAnimationFrame(frame)}));
+ expect(drift).toBeLessThan(2);
+ const manual=await area.evaluate(node=>node.scrollTop);await page.mouse.wheel(0,-120);await expect.poll(()=>area.evaluate(node=>node.scrollTop)).toBeLessThan(manual-60);await settle(page);
+ const beforeSpace=await area.evaluate(node=>node.scrollTop);await page.keyboard.press('Space');await expect.poll(()=>area.evaluate(node=>node.scrollTop)).toBeGreaterThan(beforeSpace+100);await settle(page);
+ const afterSpace=await area.evaluate(node=>node.scrollTop);await page.keyboard.press('Shift+Space');await expect.poll(()=>area.evaluate(node=>node.scrollTop)).toBeLessThan(afterSpace-100);await settle(page);
+ await page.keyboard.press('End');await expect.poll(()=>area.evaluate(node=>node.scrollHeight-node.clientHeight-node.scrollTop)).toBeLessThan(2);await settle(page);
+ await page.keyboard.press('Home');await expect.poll(()=>area.evaluate(node=>node.scrollTop)).toBeLessThan(2);await settle(page);
+ await sameAnchor(page,original);await expectSource(page,0,12);await record(page,info,'viewport-key-and-wheel-ownership');
+});
+
+test('viewport browse keys respect reduced motion and preserve native modifier and input behavior',async({page})=>{
+ await page.emulateMedia({reducedMotion:'reduce'});await open(page);await clickLine(page,0,12);
+ const area=page.locator('#scroll-area'),before=await area.evaluate(node=>node.scrollTop);
+ await page.keyboard.press('PageDown');expect(await area.evaluate(node=>node.scrollTop)).toBeGreaterThan(before+100);
+ await page.keyboard.press('Home');expect(await area.evaluate(node=>node.scrollTop)).toBe(0);
+ await page.evaluate(()=>{window.__browseKeyProbe=[];window.addEventListener('keydown',event=>{if(['Home','PageDown'].includes(event.key))__browseKeyProbe.push({key:event.key,prevented:event.defaultPrevented,target:event.target.id,shift:event.shiftKey,ctrl:event.ctrlKey})});});
+ await page.keyboard.press('Shift+PageDown');await page.keyboard.press('Control+Home');
+ await page.locator('#page-number').focus();await page.keyboard.press('PageDown');
+ const events=await page.evaluate(()=>__browseKeyProbe);
+ expect(events).toEqual([{key:'PageDown',prevented:false,target:'scroll-area',shift:true,ctrl:false},{key:'Home',prevented:false,target:'scroll-area',shift:false,ctrl:true},{key:'PageDown',prevented:false,target:'page-number',shift:false,ctrl:false}]);
+ await expectSource(page,0,12);
 });

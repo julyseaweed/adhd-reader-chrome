@@ -19,17 +19,18 @@ export function readingScrollTarget(row, viewport, position, { center = false, d
     // The host may round offsets, and transformed PDF boxes contain fractions.
     // A settled box touching its visibility boundary must not reverse on a
     // subpixel rounding difference during the next key or layout refresh.
-    const above = middle < viewport.top + viewHeight * .34 - tolerance || row.top < viewport.top + 8 - tolerance;
-    const below = middle > viewport.top + viewHeight * .64 + tolerance || row.bottom > viewport.bottom - 8 + tolerance;
+    const above = middle < viewport.top + viewHeight * .36 - tolerance || row.top < viewport.top + 8 - tolerance;
+    const below = middle > viewport.top + viewHeight * .56 + tolerance || row.bottom > viewport.bottom - 8 + tolerance;
     if (center || above || below) {
-      // Let the eye travel through a central reading band, then gently return
+      // Start returning just below the middle, before reading drifts toward
+      // the bottom. Let the eye travel through a central band, then return
       // with room to keep reading in that direction. Different trigger/landing
       // positions keep several rows stationary instead of pinning every row.
       // Use the midpoint for the band and the full box only for visibility:
       // a tall formula must not repeatedly trigger just because it is tall.
       // Reading order can jump upwards into the next column. Prefer the key's
       // reading direction over that spatial jump when leaving room to continue.
-      const ratio = center || direction > 0 ? .43 : direction < 0 ? .55 : below ? .43 : .55;
+      const ratio = center || direction > 0 ? .43 : direction < 0 ? .49 : below ? .43 : .49;
       const anchor = clamp(viewHeight * ratio, height / 2 + 8, viewHeight - height / 2 - 8);
       top += middle - viewport.top - anchor;
     }
