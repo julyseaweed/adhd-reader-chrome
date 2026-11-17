@@ -100,7 +100,7 @@ body.dark .pdf-page { background: #1f1f1f; }
 .annotation-group.highlight { opacity: var(--highlight-opacity, .35); mix-blend-mode: multiply; }
 .annotation-mark { position: absolute; pointer-events: none; }
 .annotation-mark.underline { background: transparent !important; }
-.annotation-mark.underline::after { content: ""; position: absolute; left: 0; right: 0; height: var(--underline-width); bottom: calc(var(--underline-inset) - var(--underline-width) / 2); background: var(--mark-color, #000); }
+.annotation-mark.underline::after { content: ""; position: absolute; left: var(--underline-left); top: var(--underline-top); width: var(--underline-length); height: var(--underline-width); transform-origin: 0 50%; transform: translateY(-50%) rotate(var(--underline-angle)); background: var(--mark-color, #000); }
 .annotation-mark.comment { background: transparent !important; border: 1px dotted var(--mark-color); border-radius: 2px; }
 .annotation-mark.comment::after { content: ""; width: 6px; height: 6px; background: var(--mark-color); position: absolute; right: -3px; top: -3px; border-radius: 50%; }
 body.dark .annotation-group.highlight { mix-blend-mode: screen; }

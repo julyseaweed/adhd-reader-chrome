@@ -183,7 +183,7 @@ export function underlinePdfRects(input, rotation = 0) {
  * Output is clipped to baseRect and expressed in page-relative viewport pixels.
  * Convert to PDF space, then canonicalizePdfRects before storing an annotation.
  */
-export function selectionRectsFromRange(range, container, baseRect) {
+export function selectionRectsFromRange(range, container, baseRect, textDivIndices) {
   if (!range || range.collapsed || !range.intersectsNode(container)) return [];
   const document = container.ownerDocument;
   const walker = document.createTreeWalker(container, 4); // NodeFilter.SHOW_TEXT
@@ -201,7 +201,8 @@ export function selectionRectsFromRange(range, container, baseRect) {
     for (const box of fragment.getClientRects()) {
       const x1 = Math.max(box.left, baseRect.left), y1 = Math.max(box.top, baseRect.top);
       const x2 = Math.min(box.right, right), y2 = Math.min(box.bottom, bottom);
-      if (x2 - x1 > 1e-6 && y2 - y1 > 1e-6) rects.push({ x: x1 - baseRect.left, y: y1 - baseRect.top, width: x2 - x1, height: y2 - y1 });
+      if (x2 - x1 > 1e-6 && y2 - y1 > 1e-6) rects.push({ x: x1 - baseRect.left, y: y1 - baseRect.top, width: x2 - x1, height: y2 - y1,
+        ...(textDivIndices ? {textDivIndex:textDivIndices.get(node.parentElement?.closest('span')),selectedText:node.textContent.slice(start,finish)} : {}) });
     }
   }
   return rects;

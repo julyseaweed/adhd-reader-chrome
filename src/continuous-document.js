@@ -2,6 +2,7 @@ import { extractReadingLayout, pdfjsLib } from './pdf-engine.js';
 import { alignTextLayer } from './text-layer-layout.js';
 import { textAdvancesForPage } from './text-advances.js';
 import { createWordIndex } from './word-selection.js';
+import { createUnderlineModel } from './underline-geometry.js';
 
 const GAP = 16;
 const cancelled = () => Object.assign(new Error('PDF page rendering was cancelled'), { name: 'AbortError' });
@@ -207,7 +208,9 @@ export class ContinuousDocument {
         await alignTextLayer(children.textLayer, job.textTask.textDivs, textContent, viewport, textAdvances, { check });
         const wordIndex = createWordIndex(job.textTask.textDivs, textContent);
         check();
-        const textLineMap = new WeakMap(), excludedText = new WeakSet();
+        const textLineMap = new WeakMap(), excludedText = new WeakSet(),textDivIndices=new WeakMap();
+        job.textTask.textDivs.forEach((div,index)=>textDivIndices.set(div,index));
+        const underlineModel=createUnderlineModel(layout.items,Math.hypot(viewport.transform[0],viewport.transform[1]));
         layout.lines.forEach((line, lineIndex) => line.items.forEach(item => {
           const div = job.textTask.textDivs[item.textDivIndex];
           if (div) textLineMap.set(div, lineIndex);
@@ -221,7 +224,7 @@ export class ContinuousDocument {
         record.content.replaceChildren(children.canvas, children.annotationsLayer, children.focusLayer, children.textLayer);
         record.content.style.width = viewport.width + 'px'; record.content.style.height = viewport.height + 'px';
         record.content.style.transform = '';
-        Object.assign(record, children, { viewport, scale: this.scale, renderedAnnotationRevision: job.annotationRevision, lines: layout.lines, layout, textLineMap, excludedText, wordIndex, nativeAnnotations, ready: true, error: null });
+        Object.assign(record, children, { viewport, scale: this.scale, renderedAnnotationRevision: job.annotationRevision, lines: layout.lines, layout, textLineMap, excludedText, textDivIndices,underlineModel,wordIndex, nativeAnnotations, ready: true, error: null });
         record.element.dataset.ready = 'true';
         if (oldCanvas) { oldCanvas.width = 0; oldCanvas.height = 0; }
         if (this.activeIndex === index) this.activate(index);

@@ -11,3 +11,7 @@ Selection-boundary browser tests use independently authored PDF glyph advances f
 便携单元测试覆盖行引导几何、滚动、分栏顺序、选词、随包词典、译文校验和扩展权限。浏览器测试在运行时生成 PDF，并使用临时浏览器环境。翻译单元测试模拟网络响应。
 
 选字边界测试根据独立编写的 PDF 字形宽度确定鼠标坐标，避免错位的 DOM 文字层自我验证。覆盖正反向拖选、缩放、部分单词和多个文字片段。
+
+Underline baseline coverage uses original synthetic PDFs with independently authored coordinates: mixed fonts, descenders, scripts, four rotations, three zoom levels, overlapping selections, legacy drafts, offscreen export and PDF reimport. No personal PDF is included.
+
+下划线测试使用原创生成的 PDF 和独立基线坐标，覆盖混合字体、下伸字母、上下标、四种旋转、三档缩放、重叠选区、旧草稿、未显示页面导出与 PDF 重新导入，不包含个人 PDF。

@@ -23,7 +23,7 @@ The ZIP is an unpacked-extension package, not a Chrome Web Store installation. T
 - Click a text line to place the guide. Up moves to the previous reading unit; Down or Enter moves to the next one, across columns and pages. The guide gently recenters before reading drifts toward the bottom, leaving several lines stationary between movements.
 - Wheel, touch and scrollbar movement browse the document without changing the locked reading position. The next reading key resumes from that position. Explicit page navigation starts at that page; clicking text sets a new position.
 - Figure and table interiors are skipped during line navigation, while captions and notes remain readable. Their text stays available for selection and annotation. Fractions, roots, scripts and other formula parts are grouped into reading units.
-- Drag or double-click to select text. Use the floating toolbar or the highlight, underline and comment tools. The color control appears only in highlight mode and cycles through pale yellow, blue and gray. Underlines always export as black PDF underlines.
+- Drag or double-click to select text. Use the floating toolbar or the highlight, underline and comment tools. The color control appears only in highlight mode and cycles through pale yellow, blue and gray. Underlines follow the PDF text baseline with a thin, continuous black stroke; their spacing and weight stay consistent when zooming and exporting. Existing local draft underlines are realigned when reopened.
 - Press Enter with a selection to show Chinese meanings next to it. English words use the bundled offline dictionary first; phrases, other languages and missing words use online translation.
 - In select mode, click an annotation to open its menu. Delete it, or edit a comment created in this reader. Delete and Backspace remove the selected annotation; the annotation panel also provides editing and deletion.
 - Press E to erase: click one annotation or drag across several. Each stroke is one undo step. Touch scrolling does not erase annotations. Undo and redo also restore deletions.
@@ -111,7 +111,7 @@ ADHD Reader 是一个本地 PDF 阅读器，提供持久的单行引导、连续
 - 点击文字行定位；上键读上一单元，下键或 Enter 读下一单元，可跨栏和跨页。阅读位置偏低前就会柔和回中，两次移动之间仍有几行保持静止。
 - 滚轮、触摸和滚动条只浏览页面，不改变锁定的阅读位置。再次按阅读键会从原位置继续。主动翻页从该页开始，点击文字会重新定位。
 - 逐行阅读跳过图片和表格内部，保留图注、表题和表注；图表内文字仍可选择和标注。分式、根号、上下标等公式部分会组合为完整阅读单元。
-- 拖选或双击文字后使用浮动工具栏，也可先选高亮、下划线或评论工具。颜色控件仅在高亮模式显示，可切换淡黄、淡蓝、淡灰；下划线始终按黑色 PDF 下划线导出。
+- 拖选或双击文字后使用浮动工具栏，也可先选高亮、下划线或评论工具。颜色控件仅在高亮模式显示，可切换淡黄、淡蓝、淡灰；下划线按 PDF 文字基线绘制为连续黑色细线，缩放及导出保持一致；重新打开时会校正已有本地草稿中的下划线。
 - 有选区时按 Enter，在旁边显示中文含义。英文单词优先使用随包离线词典；短语、其他语言及未收录词使用在线翻译。
 - 在选取模式点击已有标注，弹出菜单可删除标注，或修改本阅读器创建的评论。Delete、Backspace 可删除选中的标注；标注面板也提供编辑和删除操作。
 - 按 E 切换擦除工具，点击擦除一条标注，拖动可擦除经过的多条。一次拖擦对应一步撤销；触摸滚动不会擦除标注。删除支持撤销、重做。

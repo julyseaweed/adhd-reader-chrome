@@ -1,4 +1,5 @@
-import {HIGHLIGHT_OPACITY,underlineMetrics} from './annotation-style.js';
+import {HIGHLIGHT_OPACITY,underlineStroke} from './annotation-style.js';
+import {createUnderlineModel,repairUnderlineRects} from './underline-geometry.js';
 import { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFString } from 'pdf-lib';
 import { canonicalizePdfRects, underlinePdfRects } from './selection-geometry.js';
 import { ordinaryMetrics, glyphMapForPage, fontMetrics } from './glyph-metrics.js';
@@ -169,7 +170,7 @@ export function classifyReadingLines(allLines, viewport) {
     excludedLines: allLines.filter(line => excluded.has(line)), orientation };
 }
 
-export async function extractReadingLayout(page, viewport, textContent) {
+export async function extractTextMetrics(page, viewport, textContent) {
   const content = textContent || await page.getTextContent();
   const pageScale = Math.hypot(viewport.transform[0], viewport.transform[1]);
   const glyphMaps = Object.values(content.styles).some(style => !ordinaryMetrics(style))
@@ -188,6 +189,12 @@ export async function extractReadingLayout(page, viewport, textContent) {
     const bound = textItemBounds(item, style, metrics, viewport, index, divIndex);
     if (bound.width > 0.1 * pageScale && bound.height > 0.1 * pageScale) items.push(bound);
   }
+  return items;
+}
+
+export async function extractReadingLayout(page, viewport, textContent) {
+  const pageScale = Math.hypot(viewport.transform[0], viewport.transform[1]);
+  const items = await extractTextMetrics(page,viewport,textContent);
   const rows = [];
   for (const item of items.sort((a, b) => a.baselineOffset - b.baselineOffset || a.along - b.along)) {
     let row = rows.find(r => Math.abs(r.baseline - item.baselineOffset) <= Math.max(2 * pageScale, item.fontHeight * 0.3)
@@ -210,7 +217,7 @@ export async function extractReadingLayout(page, viewport, textContent) {
     if (segment.length) lines.push(mergeItems(segment));
   }
   lines = attachScriptFragments(lines, pageScale);
-  if (!lines.length) return { lines: [], excludedLines: [], allLines: [], orientation: { angle: 0, support: 0, lineCount: 0 } };
+  if (!lines.length) return { items, lines: [], excludedLines: [], allLines: [], orientation: { angle: 0, support: 0, lineCount: 0 } };
   let structures = { rules: [] };
   if (page.getOperatorList && pdfjsLib) {
     if (!pageStructures.has(page)) pageStructures.set(page, page.getOperatorList().catch(() => null));
@@ -230,9 +237,41 @@ export async function extractReadingLayout(page, viewport, textContent) {
   const excludedLines = layout.excludedLines.map((line, index) => ({ ...line,
     id: `${page.pageNumber}-margin-${index}`, readingRole: 'margin', exclusionReason: 'isolated-perpendicular-margin' }));
   excludedLines.push(...reading.excludedUnits.map((line,index)=>({...line,id:`${page.pageNumber}-${line.readingRole}-${index}`})));
-  return { lines: readingLines, excludedLines, allLines: [...readingLines, ...excludedLines], orientation: layout.orientation,
+  return { items, lines: readingLines, excludedLines, allLines: [...readingLines, ...excludedLines], orientation: layout.orientation,
     rawLines: reading.rawLines, components: reading.components, regions: reading.regions, figureRegions:reading.figureRegions,
     tableRegions:reading.tableRegions,excludedRegions:reading.excludedRegions,structures };
+}
+
+export function underlineGroups(viewport,regions){
+  const groups=new Map();
+  for(const {rect,quarter} of regions){
+    const rotation=((viewport.rotation-quarter*90)%360+360)%360;
+    if(!groups.has(rotation))groups.set(rotation,[]);
+    groups.get(rotation).push(viewportRectToPdf(viewport,rect));
+  }
+  return [...groups].map(([rotation,rects])=>({rotation,rects:underlinePdfRects(rects,rotation),underlineGeometry:2}));
+}
+
+/** Upgrade our local box-only drafts from the source PDF, including offscreen
+ * pages. Imported native PDF annotations retain their original appearances. */
+export async function repairDraftUnderlines(document,annotations){
+  const pages=new Map(),result=[];
+  for(const annotation of annotations){
+    if(annotation.type!=='underline'||annotation.underlineGeometry===2){result.push(annotation);continue}
+    let data=pages.get(annotation.pageIndex);
+    if(!data){
+      const page=await document.getPage(annotation.pageIndex+1),viewport=page.getViewport({scale:1});
+      const items=await extractTextMetrics(page,viewport);
+      data={viewport,model:createUnderlineModel(items,Math.hypot(viewport.transform[0],viewport.transform[1]))};
+      pages.set(annotation.pageIndex,data);
+    }
+    const repaired=repairUnderlineRects(annotation.rects.map(rect=>pdfRectToViewport(data.viewport,rect)),data.model);
+    const groups=underlineGroups(data.viewport,repaired.resolved);
+    if(repaired.unmatched.length)groups.push({rotation:annotation.rotation||0,rects:repaired.unmatched.map(rect=>viewportRectToPdf(data.viewport,rect)),underlineGeometry:2});
+    if(!groups.length){result.push({...annotation,underlineGeometry:2});continue}
+    groups.forEach((group,index)=>result.push({...annotation,...group,id:index?`${annotation.id}:orientation:${index}`:annotation.id}));
+  }
+  return result;
 }
 
 // Existing callers receive only the navigable reading path. Selection and
@@ -273,16 +312,10 @@ function makeAppearance(context, type, rects, bounds, color, rotation) {
       const w = number(r[2] - r[0]), h = number(r[3] - r[1]);
       if (type === 'highlight') commands.push(`${x} ${y} ${w} ${h} re`);
       else {
-        // Underline the bottom of the selection as the reader saw it, including
-        // pages whose /Rotate makes PDF x/y differ from screen horizontal/vertical.
-        const q = quadForRect(r, rotation);
-        const height = Math.hypot(q[0] - q[4], q[1] - q[5]);
-        const metrics = underlineMetrics(height);
-        const inset = metrics.inset / height;
-        const dx = (q[0] - q[4]) * inset, dy = (q[1] - q[5]) * inset;
-        const x1 = number(q[4] + dx - bounds[0]), y1 = number(q[5] + dy - bounds[1]);
-        const x2 = number(q[6] + dx - bounds[0]), y2 = number(q[7] + dy - bounds[1]);
-        commands.push(`${number(metrics.thickness)} w`,
+        const stroke=underlineStroke(r,rotation);
+        const x1=number(stroke.start[0]-bounds[0]),y1=number(stroke.start[1]-bounds[1]);
+        const x2=number(stroke.end[0]-bounds[0]),y2=number(stroke.end[1]-bounds[1]);
+        commands.push(`${number(stroke.thickness)} w`,
           `${x1} ${y1} m ${x2} ${y2} l S`);
       }
     }

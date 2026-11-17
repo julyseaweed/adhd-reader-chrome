@@ -1,5 +1,6 @@
 import './style.css';
-import {loadPDF,exportAnnotatedPdf,viewportRectToPdf,pdfRectToViewport} from './pdf-engine.js';
+import {loadPDF,exportAnnotatedPdf,viewportRectToPdf,pdfRectToViewport,underlineGroups,repairDraftUnderlines} from './pdf-engine.js';
+import {underlineSelection} from './underline-geometry.js';
 import {putDocument,getDocument,recentDocuments,fingerprint,checkpointDocument} from './storage.js';
 import {translate,cancelTranslation} from './translate.js';
 import {focusRect,readingLineAtPoint,anchoredLineIndex} from './focus-geometry.js';
@@ -8,7 +9,7 @@ import {createPdfZoom} from './pdf-zoom.js';
 import {createReadingScroll,readingScrollTarget} from './reading-scroll.js';
 import {ContinuousDocument} from './continuous-document.js';
 import {selectWordAtPoint} from './word-selection.js';
-import {HIGHLIGHT_COLORS as palette,HIGHLIGHT_OPACITY,underlineMetrics} from './annotation-style.js';
+import {HIGHLIGHT_COLORS as palette,HIGHLIGHT_OPACITY,underlineStroke} from './annotation-style.js';
 import {annotationAtPoint,annotationsAlongSegment} from './annotation-hit-test.js';
 import {applyDeletedAnnotationsToDocument} from './annotation-deletions.js';
 document.documentElement.style.setProperty('--highlight-opacity',HIGHLIGHT_OPACITY);
@@ -106,7 +107,7 @@ function resetDocumentSession(){
 async function openBytes(input,name,stored,importId=beginOpenIntent()){
  if(importId!==openGeneration)return;if(s.doc)await persist(true);if(importId!==openGeneration)return;closeFloating();busy(true);let next;
  try{const bytes=input instanceof Uint8Array?input:new Uint8Array(input);let password;for(;;){if(importId!==openGeneration)return;try{next=await loadPDF(bytes,password);break}catch(e){if(importId!==openGeneration)return;if(e.name!=='PasswordException')throw e;password=await requestPassword();if(password===null||importId!==openGeneration)return;busy(true)}}
- const id=await fingerprint(bytes);stored=stored||await getDocument(id).catch(()=>null);if(importId!==openGeneration){await next.destroy();return}const previous=s.doc;resetDocumentSession();Object.assign(s,{doc:next,bytes:bytes.slice(),id,name,pageIndex:Math.min(stored?.pageIndex||0,next.numPages-1),lineIndex:stored?.lineIndex||0,restoredLine:stored?.lineAnchor||null,annotations:normalizeDraft(stored?.annotations||[]),deletedAnnotations:structuredClone(stored?.deletedAnnotations||[]),nativeByPage:new Map(),undo:[],redo:[],zoom:null,savedSignature:stored?.savedSignature||'[]',storageFailed:false});if(previous)Promise.resolve(previous.destroy()).catch(console.error);
+ const id=await fingerprint(bytes);stored=stored||await getDocument(id).catch(()=>null);if(importId!==openGeneration){await next.destroy();return}const annotations=await repairDraftUnderlines(next,normalizeDraft(stored?.annotations||[]));if(importId!==openGeneration){await next.destroy();return}const previous=s.doc;resetDocumentSession();Object.assign(s,{doc:next,bytes:bytes.slice(),id,name,pageIndex:Math.min(stored?.pageIndex||0,next.numPages-1),lineIndex:stored?.lineIndex||0,restoredLine:stored?.lineAnchor||null,annotations,deletedAnnotations:structuredClone(stored?.deletedAnnotations||[]),nativeByPage:new Map(),undo:[],redo:[],zoom:null,savedSignature:stored?.savedSignature||'[]',storageFailed:false});if(previous)Promise.resolve(previous.destroy()).catch(console.error);
  applyDeletedAnnotationsToDocument(next,s.deletedAnnotations);
  s.canExport=next.canExportAnnotations!==false;$('save').disabled=!s.canExport;document.querySelectorAll('button[data-tool]:not([data-tool=select]),#selection-menu [data-action=highlight],#selection-menu [data-action=underline],#selection-menu [data-action=comment]').forEach(b=>b.disabled=!s.canExport);if(!s.canExport){setTool('select');toast(next.exportLimitation||'此 PDF 暂不支持写入标注')}
  s.readingAnchor={lineIndex:s.lineIndex,...(stored?.lineAnchor||{}),pageIndex:s.pageIndex};
@@ -447,12 +448,15 @@ function captureSelection(){
  for(const record of flow.records){
   if(!record.ready||!range.intersectsNode(record.textLayer))continue;
   const base=record.element.getBoundingClientRect();
-  const rects=canonicalizePdfRects(selectionRectsFromRange(range,record.textLayer,base).map(r=>viewportRectToPdf(record.viewport,r)),record.viewport.rotation);
+  const fragments=selectionRectsFromRange(range,record.textLayer,base,record.textDivIndices);
+  const rects=canonicalizePdfRects(fragments.map(r=>viewportRectToPdf(record.viewport,r)),record.viewport.rotation);
   if(!rects.length)continue;
   const local=range.cloneRange(),contents=document.createRange();contents.selectNodeContents(record.textLayer);
   if(local.compareBoundaryPoints(Range.START_TO_START,contents)<0)local.setStart(contents.startContainer,contents.startOffset);
   if(local.compareBoundaryPoints(Range.END_TO_END,contents)>0)local.setEnd(contents.endContainer,contents.endOffset);
-  segments.push({pageIndex:record.index,rotation:record.viewport.rotation,rects,text:local.toString().trim()});
+  const geometry=underlineSelection(fragments,record.underlineModel),underlines=underlineGroups(record.viewport,geometry.resolved);
+  if(geometry.unmatched.length)underlines.push({rotation:record.viewport.rotation,rects:underlinePdfRects(geometry.unmatched.map(r=>viewportRectToPdf(record.viewport,r)),record.viewport.rotation),underlineGeometry:2});
+  segments.push({pageIndex:record.index,rotation:record.viewport.rotation,rects,underlines,text:local.toString().trim()});
   const first=pdfRectToViewport(record.viewport,rects[0]),last=pdfRectToViewport(record.viewport,rects.at(-1));
   firstAnchor??={left:base.left+first.x,top:base.top+first.y};lastAnchor=base.top+last.y+last.height;
  }
@@ -474,7 +478,7 @@ function refreshAnnotationState(){
 function commitChange(fn,recordUndo=true){if(!s.canExport)return;if(recordUndo){s.undo.push(annotationState());if(s.undo.length>100)s.undo.shift();s.redo=[]}fn();refreshAnnotationState()}
 function editAnnotationComment(a){commentEditing=a.id;closeFloating();$('comment-quote').textContent=a.text||'';$('comment-text').value=a.comment||'';$('comment-dialog').showModal();$('comment-text').focus()}
 
-function performAction(type){if(s.rendering||s.renderedPageIndex!==s.pageIndex)return;captureSelection();const selection=s.selection;if(!selection)return;if(type==='translate'){showTranslation();return}if(type==='copy'){navigator.clipboard.writeText(selection.text).then(()=>toast('已复制')).catch(()=>toast('复制失败，可用 Ctrl C'));return}if(!s.canExport){toast(s.doc.exportLimitation);return}if(type==='comment'){commentEditing=null;commentTarget={documentId:s.id,pageIndex:selection.segments[0].pageIndex,rotation:selection.segments[0].rotation,selection:structuredClone(selection)};$('comment-quote').textContent=selection.text;$('comment-text').value='';$('comment-dialog').showModal();$('comment-text').focus();return}commitChange(()=>{for(const segment of selection.segments)s.annotations.push({id:crypto.randomUUID(),...segment,rects:type==='underline'?underlinePdfRects(segment.rects,segment.rotation):segment.rects,type,color:type==='underline'?'#000000':s.color,comment:''})});clearSelection()}
+function performAction(type){if(s.rendering||s.renderedPageIndex!==s.pageIndex)return;captureSelection();const selection=s.selection;if(!selection)return;if(type==='translate'){showTranslation();return}if(type==='copy'){navigator.clipboard.writeText(selection.text).then(()=>toast('已复制')).catch(()=>toast('复制失败，可用 Ctrl C'));return}if(!s.canExport){toast(s.doc.exportLimitation);return}if(type==='comment'){commentEditing=null;commentTarget={documentId:s.id,pageIndex:selection.segments[0].pageIndex,rotation:selection.segments[0].rotation,selection:structuredClone(selection)};$('comment-quote').textContent=selection.text;$('comment-text').value='';$('comment-dialog').showModal();$('comment-text').focus();return}commitChange(()=>{for(const segment of selection.segments){const {underlines,...base}=segment;const parts=type==='underline'?(underlines?.length?underlines:[{rects:underlinePdfRects(base.rects,base.rotation),underlineGeometry:2}]):[{}];for(const part of parts)s.annotations.push({id:crypto.randomUUID(),...base,...part,type,color:type==='underline'?'#000000':s.color,comment:''})}});clearSelection()}
 $('comment-save').onclick=()=>{const value=$('comment-text').value.trim();const existing=commentEditing&&s.annotations.find(a=>a.id===commentEditing);if(!value&&(!existing||existing.type==='comment')){$('comment-text').focus();return}if(existing){commitChange(()=>existing.comment=value)}else if(commentTarget?.documentId===s.id){const target=commentTarget;commitChange(()=>s.annotations.push({id:crypto.randomUUID(),pageIndex:target.pageIndex,rotation:target.rotation,type:'comment',rects:target.selection.rects,text:target.selection.text,color:s.color,comment:value}))}$('comment-dialog').close();clearSelection()};
 $('comment-dialog').addEventListener('close',()=>{commentTarget=null;commentEditing=null;clearSelection()});
 function drawAnnotations(){for(const record of flow.records)if(record.ready)drawRecordAnnotations(record)}
@@ -482,7 +486,7 @@ function drawRecordAnnotations(record){
  const layer=record.annotationsLayer;layer.replaceChildren();if(!record.viewport)return;
  for(const a of s.annotations.filter(a=>a.pageIndex===record.index)){
   const group=document.createElement('div');group.className='annotation-group '+a.type;
-  for(const rect of a.rects){const r=pdfRectToViewport(record.viewport,rect);const el=document.createElement('div');el.className='annotation-mark '+a.type;Object.assign(el.style,{left:r.x+'px',top:r.y+'px',width:r.width+'px',height:r.height+'px',background:a.color});el.style.setProperty('--mark-color',a.color);if(a.type==='underline'){const scale=Math.hypot(record.viewport.transform[0],record.viewport.transform[1]);const m=underlineMetrics(r.height/scale);el.style.setProperty('--underline-width',m.thickness*scale+'px');el.style.setProperty('--underline-inset',m.inset*scale+'px')}el.title=a.comment||a.text||'';el.dataset.annotationId=a.id;group.append(el)}
+  for(const rect of a.rects){const r=pdfRectToViewport(record.viewport,rect);const el=document.createElement('div');el.className='annotation-mark '+a.type;Object.assign(el.style,{left:r.x+'px',top:r.y+'px',width:r.width+'px',height:r.height+'px',background:a.color});el.style.setProperty('--mark-color',a.color);if(a.type==='underline'){const scale=Math.hypot(record.viewport.transform[0],record.viewport.transform[1]);const stroke=underlineStroke(rect,a.rotation||0),start=record.viewport.convertToViewportPoint(...stroke.start),end=record.viewport.convertToViewportPoint(...stroke.end);el.style.setProperty('--underline-width',stroke.thickness*scale+'px');el.style.setProperty('--underline-left',(start[0]-r.x)+'px');el.style.setProperty('--underline-top',(start[1]-r.y)+'px');el.style.setProperty('--underline-length',Math.hypot(end[0]-start[0],end[1]-start[1])+'px');el.style.setProperty('--underline-angle',Math.atan2(end[1]-start[1],end[0]-start[0])+'rad')}el.title=a.comment||a.text||'';el.dataset.annotationId=a.id;group.append(el)}
   layer.append(group);
  }
  paintRecordFocus(record);
